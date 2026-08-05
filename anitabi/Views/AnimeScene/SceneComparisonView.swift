@@ -42,6 +42,25 @@ struct SceneComparisonView: View {
     @State private var overlayOpacity: Double = 0.5
     @State private var isPeeking = false
 
+    // MARK: - 仅角色叠加（去背景）
+    // 参考图去掉背景后角色仍在原位，背景透出实时相机画面 —— 对齐时能同时看到角色站位和真实场景。
+    @State private var cutoutSource: UIImage? = nil         // Vision 看到的那张原图，手动修补时从它取色
+    @State private var cutoutImage: UIImage? = nil          // 收边后的成品，实际叠加用这张
+    @State private var isCutoutMode = false
+    @State private var isExtractingCutout = false
+    @State private var cutoutFailed = false
+    @State private var opacityBeforeCutout: Double = 0.5    // 退出该模式时还原用户原本的透明度
+    private let subjectExtractor = VisionSubjectExtractor()
+
+    // MARK: - 手动修补
+    // 自动填洞只认「四面被角色围住」的洞；从腋下、衣摆缝隙通到画面外的缺失它判不出来，只能人工补。
+    @State private var painter: CutoutPainter? = nil
+    @State private var isPatching = false
+    @State private var lastPaintPoint: CGPoint? = nil
+    @State private var brushRadiusRatio = CutoutPainter.defaultRadiusRatio
+    @State private var brushCursor: CGPoint? = nil          // 取景框内坐标，仅落笔时显示
+    @State private var isAdjustingBrush = false             // 拖粗细滑杆时在正中央显示预览
+
     // MARK: - 自由变换（提交值 + 实时增量）
     @State private var committedOffset: CGSize = .zero
     @State private var committedScale: CGFloat = 1
@@ -77,9 +96,9 @@ struct SceneComparisonView: View {
                height: committedOffset.height + dragDelta.height)
     }
     private var displayedOpacity: Double { isPeeking ? 0 : overlayOpacity }
-    private var isTransformed: Bool {
-        committedOffset != .zero || committedScale != 1 || committedRotation != .zero
-    }
+
+    /// 取景框实际尺寸（点）。合成成片时用来把点数位移换算成与分辨率无关的比例。
+    @State private var viewfinderSize: CGSize = .zero
 
     // MARK: - 主体视图
     var body: some View {
@@ -119,12 +138,33 @@ struct SceneComparisonView: View {
                         .frame(width: frame.width, height: frame.height)
                         .clipped()
 
+                    // 修补层：盖在参考图上接管手势，避免和平移/缩放/旋转打架。
+                    if isPatching {
+                        ZStack {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .gesture(paintGesture(in: frame))
+
+                            // 笔刷圈按真实大小画 —— 侧栏那个圆点只是示意，这个才是所见即所得。
+                            // 落笔时跟着指尖；只是在拖粗细滑杆时，就钉在正中央当预览。
+                            if let brushCursor {
+                                brushOutline(in: frame).position(brushCursor)
+                            } else if isAdjustingBrush {
+                                brushOutline(in: frame)
+                            }
+                        }
+                        .frame(width: frame.width, height: frame.height)
+                        .clipped()
+                    }
+
                     RoundedRectangle(cornerRadius: 2)
                         .stroke(Color.white.opacity(0.7), lineWidth: 1)
                         .frame(width: frame.width, height: frame.height)
                         .allowsHitTesting(false)
                 }
                 .frame(width: screen.width, height: screen.height)
+                // 记下取景框尺寸：合成成片时要拿它把点数位移换算成归一化比例
+                .onChange(of: frame, initial: true) { _, newValue in viewfinderSize = newValue }
             }
             .ignoresSafeArea()
 
@@ -168,6 +208,11 @@ struct SceneComparisonView: View {
         } message: {
             Text(generateErrorMessage ?? "")
         }
+        .alert("没能分离出角色", isPresented: $cutoutFailed) {
+            Button("好", role: .cancel) { cutoutFailed = false }
+        } message: {
+            Text("这张参考图里没识别到清晰的角色主体，仍可用整图叠加对齐。")
+        }
         .fullScreenCover(isPresented: $showGeneratedComparison) {
             if let combinedImage = combinedImage {
                 ComparisonResultView(
@@ -180,12 +225,26 @@ struct SceneComparisonView: View {
     }
 
     // MARK: - 参考图叠加（填满取景框，可平移/缩放/旋转做精细对齐；溢出由取景框裁剪）
+    /// 仅角色模式下换成去背景版。两张图同比例、同用 `scaledToFill`，
+    /// 所以切换时角色在屏幕上的位置分毫不动，只是背景消失、透出相机画面。
     @ViewBuilder
     private var referenceOverlay: some View {
-        if let display = animeImageDisplay {
-            Image(uiImage: display)
-                .resizable()
-                .scaledToFill()
+        if let display = isCutoutMode ? cutoutImage : animeImageDisplay {
+            ZStack {
+                // 修补时把完整剧照压成一层白蒙版垫在下面当参照：
+                // 发白的是已经被去掉的部分，实色的是留下来的角色 —— 一眼看出该往哪儿补。
+                // 和上层同比例、同 scaledToFill、同在一组变换里，所以严格对齐。
+                if isPatching, let ghost = cutoutSource ?? animeImageDisplay {
+                    Image(uiImage: ghost)
+                        .resizable()
+                        .scaledToFill()
+                        .overlay(Color.white.opacity(0.4))
+                }
+
+                Image(uiImage: display)
+                    .resizable()
+                    .scaledToFill()
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .scaleEffect(liveScale)
                 .rotationEffect(liveRotation)
@@ -296,7 +355,11 @@ struct SceneComparisonView: View {
             VStack { topBar; Spacer() }
 
             if hasReference {
-                HStack { opacityRail; Spacer() }
+                HStack(spacing: 8) {
+                    opacityRail
+                    if isPatching { brushRail }
+                    Spacer()
+                }
             }
 
             // 右侧拇指区：焦段竖排紧邻快门列（系统相机横持时变焦档就在快门旁）
@@ -327,36 +390,89 @@ struct SceneComparisonView: View {
         }
     }
 
-    // 右侧竖直操作栏：速看 / 快门（或生成+重拍）/ 相册 / 重置对齐。
+    // MARK: - 右侧竖直操作栏
+
+    /// 主按钮（快门 / 生成对比 / 完成修补）**永远锚在垂直正中**，不随其他按钮增减而移动。
+    ///
+    /// 相机 UI 里快门位置是肌肉记忆，浮动会很难受。做法：上下两组辅助按钮各占一半弹性高度、
+    /// 分别向中间对齐，中间留一个固定高度的槽位 —— 于是槽位天然落在正中，
+    /// ZStack 里居中的主按钮正好嵌进去。
+    private func railStack<Upper: View, Primary: View, Lower: View>(
+        @ViewBuilder upper: () -> Upper,
+        @ViewBuilder primary: () -> Primary,
+        @ViewBuilder lower: () -> Lower
+    ) -> some View {
+        ZStack {
+            VStack(spacing: 14) {
+                VStack(spacing: 14) { upper() }
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                Color.clear.frame(width: railPrimarySlot, height: railPrimarySlot)
+                VStack(spacing: 14) { lower() }
+                    .frame(maxHeight: .infinity, alignment: .top)
+            }
+            primary()
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    /// 主按钮槽位边长，取最大的那个（快门 62pt）。
+    private var railPrimarySlot: CGFloat { 62 }
+
+    @ViewBuilder
     private var controlRail: some View {
-        VStack(spacing: 14) {
-            Spacer()
+        if isPatching { patchingRail } else { defaultRail }
+    }
 
-            if hasReference { peekRailButton }
+    /// 修补时只留「撤销 / 完成」，其余控件收起来 —— 免得涂着涂着误触快门。
+    /// 「完成」落在快门原本的位置，模式切换时主按钮不跳。
+    private var patchingRail: some View {
+        railStack {
+            railIconButton("arrow.uturn.backward", accessibility: String(localized: "撤销一笔")) {
+                painter?.undo()
+                refreshPaintedImage()
+            }
+            .disabled(!(painter?.canUndo ?? false))
+            .opacity((painter?.canUndo ?? false) ? 1 : 0.4)
+        } primary: {
+            railPrimaryButton(systemName: "checkmark",
+                              accessibility: String(localized: "完成修补"),
+                              busy: false, disabled: false) {
+                isPatching = false
+            }
+        } lower: {
+            EmptyView()
+        }
+    }
 
+    /// 上组＝切换「看到什么」，下组＝高频动作，主按钮居中。
+    ///
+    /// **每组最多 2 个按钮**：半边可用高度约 140pt，塞第三个会溢出去撞到顶栏。
+    /// 名额只有 4 个，所以「重置对齐」没有按钮 —— 双击参考图即可重置（见 `referenceOverlay`），
+    /// 它是唯一一个已有等价手势的，砍它代价最小。
+    private var defaultRail: some View {
+        railStack {
+            if hasReference { cutoutRailButton }
+            if isCutoutMode { patchRailButton }
+        } primary: {
             if capturedImage != nil {
                 railPrimaryButton(systemName: "wand.and.stars",
                                   accessibility: String(localized: "生成对比"),
                                   busy: isProcessingPhoto,
                                   disabled: isProcessingPhoto || !hasReference,
                                   action: generateComparison)
+            } else {
+                railShutter
+            }
+        } lower: {
+            if hasReference { peekRailButton }
+            if capturedImage != nil {
                 railIconButton("arrow.counterclockwise", accessibility: String(localized: "重拍")) {
                     resetCamera()
                 }
             } else {
-                railShutter
                 railIconLabel(systemName: "photo.stack", accessibility: String(localized: "相册"))
                     .pickCapturedSheet(onPick: applyLibraryPhoto)
             }
-
-            if isTransformed {
-                railIconButton("arrow.up.left.and.down.right.magnifyingglass",
-                               accessibility: String(localized: "重置对齐")) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { resetTransform() }
-                }
-            }
-
-            Spacer()
         }
     }
 
@@ -380,6 +496,67 @@ struct SceneComparisonView: View {
             .padding(.horizontal, 14)
             .background(Capsule().fill(Color.black.opacity(0.55)))
             .frame(maxWidth: 220)
+    }
+
+    /// 修补时并排出现的笔刷粗细滑杆。底部圆点随之缩放做个示意（受滑杆宽度所限只能是示意，
+    /// 真实大小由落笔时画面上的笔刷圈给出）。
+    private var brushRail: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "paintbrush.pointed")
+                .font(.system(size: 14))
+                .foregroundColor(.white)
+            VerticalOpacitySlider(value: brushSliderValue) { editing in
+                withAnimation(.easeOut(duration: 0.12)) { isAdjustingBrush = editing }
+            }
+            .frame(width: 24, height: 140)
+                .accessibilityElement()
+                .accessibilityLabel(Text("笔刷粗细"))
+                .accessibilityValue(Text(brushSliderValue.wrappedValue, format: .percent.precision(.fractionLength(0))))
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: brushSliderValue.wrappedValue = min(brushSliderValue.wrappedValue + 0.1, 1)
+                    case .decrement: brushSliderValue.wrappedValue = max(brushSliderValue.wrappedValue - 0.1, 0)
+                    @unknown default: break
+                    }
+                }
+            // 固定高度占位，避免圆点变大变小时整条滑杆上下跳动
+            Circle()
+                .fill(Color.white)
+                .frame(width: 4 + brushSliderValue.wrappedValue * 12,
+                       height: 4 + brushSliderValue.wrappedValue * 12)
+                .frame(height: 16)
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 7)
+        .background(Capsule().fill(Color.black.opacity(0.45)))
+    }
+
+    /// 笔刷比例 ↔ 滑杆的 0~1 之间做线性映射。
+    private var brushSliderValue: Binding<Double> {
+        let lower = CutoutPainter.minRadiusRatio
+        let span = CutoutPainter.maxRadiusRatio - lower
+        return Binding(
+            get: { Double((brushRadiusRatio - lower) / span) },
+            set: { brushRadiusRatio = lower + CGFloat($0) * span }
+        )
+    }
+
+    /// 按真实大小画的笔刷圈。淡填充 + 描边，杂乱实景上也看得清。
+    private func brushOutline(in frame: CGSize) -> some View {
+        let diameter = brushScreenRadius(in: frame) * 2
+        return Circle()
+            .fill(Color.white.opacity(0.18))
+            .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1.5))
+            .frame(width: diameter, height: diameter)
+            .allowsHitTesting(false)
+    }
+
+    /// 笔刷在屏幕上的真实半径。
+    ///
+    /// 半径是「图像长边的比例」，而取景框比例 == 参考图比例（`scaledToFill` 恰好铺满），
+    /// 于是图像长边正好对应取景框长边；再乘上当前缩放即可。
+    private func brushScreenRadius(in frame: CGSize) -> CGFloat {
+        brushRadiusRatio * max(frame.width, frame.height) * liveScale
     }
 
     // 左侧竖直透明度滑杆：横持双手握机时，左手拇指原地上下滑即可调节，无需够到屏幕底部。
@@ -443,6 +620,28 @@ struct SceneComparisonView: View {
                           accessibility: String(localized: "切换参考图显示"),
                           tint: isPeeking)
         }
+    }
+
+    /// 仅角色叠加开关。首次点击才去抠图（几百毫秒），结果缓存复用。
+    private var cutoutRailButton: some View {
+        Button(action: toggleCutoutMode) {
+            if isExtractingCutout {
+                ZStack {
+                    Circle().fill(Color.black.opacity(0.55)).frame(width: 46, height: 46)
+                    ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .white))
+                }
+                .accessibilityLabel(Text("正在去除背景"))
+            } else {
+                railIconLabel(systemName: "person.and.background.dotted",
+                              accessibility: String(localized: "仅叠加角色"),
+                              tint: isCutoutMode)
+            }
+        }
+        .disabled(isExtractingCutout)
+    }
+
+    private var patchRailButton: some View {
+        railIconButton("paintbrush.pointed", accessibility: String(localized: "手动修补"), action: startPatching)
     }
 
     private var railShutter: some View {
@@ -601,6 +800,114 @@ struct SceneComparisonView: View {
         animeAspect = full.aspectRatioValue
         isLoadingAnime = false
         animeLoadFailed = false
+
+        // 换了底图，之前抠的角色和笔迹全部作废
+        cutoutSource = nil
+        cutoutImage = nil
+        painter = nil
+        isCutoutMode = false
+        isPatching = false
+    }
+
+    /// 切换「仅叠加角色」：去掉参考图背景，角色留在原位，背景透出实时相机画面。
+    private func toggleCutoutMode() {
+        if isCutoutMode {
+            isPatching = false
+            withAnimation {
+                isCutoutMode = false
+                overlayOpacity = opacityBeforeCutout
+            }
+            return
+        }
+
+        if cutoutImage != nil {
+            enterCutoutMode()
+            return
+        }
+
+        guard let full = animeImageFull else { return }
+        isExtractingCutout = true
+        Task {
+            let cutout = try? await subjectExtractor.extractSubject(from: full)
+            await MainActor.run {
+                isExtractingCutout = false
+                guard let cutout, cutout.isPlausible else {
+                    cutoutFailed = true
+                    return
+                }
+                cutoutSource = cutout.source
+                cutoutImage = SubjectMatteRefiner.refined(cutout.image, source: cutout.source) ?? cutout.image
+                enterCutoutMode()
+            }
+        }
+    }
+
+    /// 进入手动修补：以当前显示的成品为底，涂到哪就把原图那块补回来。
+    private func startPatching() {
+        guard let base = cutoutImage, let source = cutoutSource else { return }
+        if painter == nil {
+            painter = CutoutPainter(base: base, source: source)
+        }
+        guard painter != nil else { return }
+        lastPaintPoint = nil
+        isPatching = true
+    }
+
+    private func refreshPaintedImage() {
+        guard let painted = painter?.makeImage() else { return }
+        cutoutImage = painted
+    }
+
+    private func paintGesture(in frame: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard let painter else { return }
+                let point = normalizedPoint(value.location, in: frame)
+                if lastPaintPoint == nil { painter.beginStroke() }
+                painter.paint(from: lastPaintPoint ?? point, to: point, radiusRatio: brushRadiusRatio)
+                lastPaintPoint = point
+                brushCursor = value.location
+                refreshPaintedImage()
+            }
+            .onEnded { _ in
+                painter?.endStroke()
+                lastPaintPoint = nil
+                brushCursor = nil
+            }
+    }
+
+    /// 把取景框内的触点反解成参考图上的归一化坐标（0~1，左上原点）。
+    ///
+    /// 叠加层依次经过 `scaleEffect` → `rotationEffect` → `offset`（都以中心为基准），
+    /// 这里按相反顺序逐个撤销。取景框比例 == 参考图比例，所以 `scaledToFill` 恰好铺满、
+    /// 没有额外的裁切偏移，归一化坐标可以直接当图像坐标用。
+    private func normalizedPoint(_ location: CGPoint, in frame: CGSize) -> CGPoint {
+        guard frame.width > 0, frame.height > 0 else { return .zero }
+        let center = CGPoint(x: frame.width / 2, y: frame.height / 2)
+
+        var vector = CGPoint(x: location.x - center.x - liveOffset.width,
+                             y: location.y - center.y - liveOffset.height)
+
+        let angle = -liveRotation.radians
+        let cosA = cos(angle), sinA = sin(angle)
+        vector = CGPoint(x: vector.x * cosA - vector.y * sinA,
+                         y: vector.x * sinA + vector.y * cosA)
+
+        let scale = max(liveScale, 0.0001)
+        vector = CGPoint(x: vector.x / scale, y: vector.y / scale)
+
+        return CGPoint(x: (vector.x + center.x) / frame.width,
+                       y: (vector.y + center.y) / frame.height)
+    }
+
+    /// 进入仅角色模式时把透明度拉满 —— 半透明的角色配上真实背景很难看清，
+    /// 但仍留给用户自由调节，退出时还原原值。
+    private func enterCutoutMode() {
+        opacityBeforeCutout = overlayOpacity
+        withAnimation {
+            isCutoutMode = true
+            overlayOpacity = 1
+        }
     }
 
     /// 比例变化后，用保存的未裁切原图按新比例中心重裁，避免强制重拍。
@@ -671,7 +978,50 @@ struct SceneComparisonView: View {
         }
     }
 
+    /// 抠像模式下产出的是「和角色同框」的合体成片，不是上下对比卡片。
     private func generateComparison() {
+        if isCutoutMode, let cutout = cutoutImage {
+            generateComposite(with: cutout)
+            return
+        }
+        generateSideBySide()
+    }
+
+    /// 实拍图上叠合角色，位置与取景框里所见完全一致。
+    private func generateComposite(with cutout: UIImage) {
+        guard let userImage = capturedImage,
+              viewfinderSize.width > 0, viewfinderSize.height > 0 else { return }
+        isProcessingPhoto = true
+
+        // 手势已结束，用提交值即可；位移归一化后与分辨率无关。
+        let offsetRatio = CGSize(width: committedOffset.width / viewfinderSize.width,
+                                 height: committedOffset.height / viewfinderSize.height)
+        let scale = committedScale
+        let rotation = committedRotation
+        let opacity = CGFloat(overlayOpacity)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let combined = ComparisonImageGenerator().generateCompositeImage(
+                userImage: userImage,
+                cutout: cutout,
+                scale: scale,
+                rotation: rotation,
+                offsetRatio: offsetRatio,
+                opacity: opacity
+            )
+            DispatchQueue.main.async {
+                self.isProcessingPhoto = false
+                if let combined {
+                    self.combinedImage = combined
+                    self.showGeneratedComparison = true
+                } else {
+                    self.generateErrorMessage = String(localized: "合成失败，请重试")
+                }
+            }
+        }
+    }
+
+    private func generateSideBySide() {
         guard let animeImageFull = animeImageFull, let userImage = capturedImage else { return }
         isProcessingPhoto = true
         let aspect = animeAspect ?? animeImageFull.aspectRatioValue
@@ -744,7 +1094,12 @@ private struct FrameMaskShape: Shape {
 // MARK: - 竖直透明度滑杆（自绘：轨道 + 填充 + 圆钮，整条区域可拖）
 private struct VerticalOpacitySlider: View {
     @Binding var value: Double
+    /// 拖动开始 / 结束的回调，用来在画面上临时显示预览之类的反馈。
+    var onEditingChanged: ((Bool) -> Void)? = nil
+
     private let knobSize: CGFloat = 17
+    /// 用 `@GestureState` 而不是 `@State`：手势被系统打断时会自动复位，不会把反馈卡在屏幕上。
+    @GestureState private var isDragging = false
 
     var body: some View {
         GeometryReader { geo in
@@ -763,12 +1118,14 @@ private struct VerticalOpacitySlider: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
+                    .updating($isDragging) { _, state, _ in state = true }
                     .onChanged { gesture in
                         let raw = 1 - (gesture.location.y - knobSize / 2) / travel
                         value = min(max(Double(raw), 0), 1)
                     }
             )
         }
+        .onChange(of: isDragging) { _, dragging in onEditingChanged?(dragging) }
     }
 }
 

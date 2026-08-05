@@ -1,842 +1,1029 @@
 {
-  "sourceLanguage" : "zh-Hans",
-  "strings" : {
-    "%@ 对比" : {
-      "comment" : "Navigation title on the comparison result screen; %@ is the scene name",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ Comparison"
+  "sourceLanguage": "zh-Hans",
+  "strings": {
+    "%@ 对比": {
+      "comment": "Navigation title on the comparison result screen; %@ is the scene name",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Comparison"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ の比較"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の比較"
           }
         }
       }
     },
-    "%@访问受限" : {
-      "comment" : "Permission alert title; %@ is the resource name, e.g. Camera",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ Access Restricted"
+    "%@访问受限": {
+      "comment": "Permission alert title; %@ is the resource name, e.g. Camera",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Access Restricted"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@へのアクセスが制限されています"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@へのアクセスが制限されています"
           }
         }
       }
     },
-    "https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans" : {
-      "comment" : "Localized URL of the CC BY-NC-SA 4.0 license deed shown on the onboarding screen",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en"
+    "OK": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "https://creativecommons.org/licenses/by-nc-sa/4.0/deed.ja"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
           }
         }
       }
     },
-    "OK" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
+    "https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans": {
+      "comment": "Localized URL of the CC BY-NC-SA 4.0 license deed shown on the onboarding screen",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://creativecommons.org/licenses/by-nc-sa/4.0/deed.ja"
           }
         }
       }
     },
-    "下列部分按钮可能需要长按才能被跳转" : {
-      "comment" : "Notice injected into the web footer telling users some buttons need a long press",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Some buttons below may require a long press to open"
+    "下列部分按钮可能需要长按才能被跳转": {
+      "comment": "Notice injected into the web footer telling users some buttons need a long press",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some buttons below may require a long press to open"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "下部の一部のボタンは、長押ししないと開けない場合があります"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下部の一部のボタンは、長押ししないと開けない場合があります"
           }
         }
       }
     },
-    "下载图片失败" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to Download Image"
+    "下载图片失败": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to Download Image"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "画像のダウンロードに失敗しました"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像のダウンロードに失敗しました"
           }
         }
       }
     },
-    "下载图片失败: %@" : {
-      "comment" : "%@ is the system error description",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to download image: %@"
+    "下载图片失败: %@": {
+      "comment": "%@ is the system error description",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to download image: %@"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "画像のダウンロードに失敗しました: %@"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像のダウンロードに失敗しました: %@"
           }
         }
       }
     },
-    "了解协议细节" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Learn About the License"
+    "了解协议细节": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Learn About the License"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ライセンスの詳細を見る"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライセンスの詳細を見る"
           }
         }
       }
     },
-    "保存" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save"
+    "仅叠加角色": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Character only"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャラクターのみ"
           }
         }
       }
     },
-    "保存到相册失败: %@" : {
-      "comment" : "%@ is the system error description",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to save to Photos: %@"
+    "保存": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アルバムへの保存に失敗しました: %@"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
           }
         }
       }
     },
-    "关闭" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Close"
+    "保存到相册失败: %@": {
+      "comment": "%@ is the system error description",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to save to Photos: %@"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "閉じる"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アルバムへの保存に失敗しました: %@"
           }
         }
       }
     },
-    "出现错误" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "An Error Occurred"
+    "关闭": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "エラーが発生しました"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
           }
         }
       }
     },
-    "分享" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Share"
+    "出现错误": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An Error Occurred"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "共有"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーが発生しました"
           }
         }
       }
     },
-    "切换参考图显示" : {
-      "comment" : "Accessibility label for the button that shows/hides the reference overlay",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Toggle reference overlay"
+    "分享": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "参考画像の表示を切り替え"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有"
           }
         }
       }
     },
-    "前往设置" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open Settings"
+    "切换参考图显示": {
+      "comment": "Accessibility label for the button that shows/hides the reference overlay",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle reference overlay"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "設定を開く"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参考画像の表示を切り替え"
           }
         }
       }
     },
-    "参考图加载失败" : {
-      "comment" : "Error shown when the reference image fails to load",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to load reference image"
+    "前往设置": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "参考画像の読み込みに失敗しました"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を開く"
           }
         }
       }
     },
-    "取消" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cancel"
+    "参考图加载失败": {
+      "comment": "Error shown when the reference image fails to load",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to load reference image"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "キャンセル"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参考画像の読み込みに失敗しました"
           }
         }
       }
     },
-    "叠加透明度" : {
-      "comment" : "Accessibility label for the overlay opacity slider on the comparison camera",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Overlay opacity"
+    "取消": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重ねる不透明度"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
           }
         }
       }
     },
-    "在地图上点击即可投稿地标截图信息，参与完善地图数据，让更多巡礼人受益。" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tap on the map to submit location and screenshot info, help refine the map data, and benefit fellow pilgrims."
+    "叠加透明度": {
+      "comment": "Accessibility label for the overlay opacity slider on the comparison camera",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overlay opacity"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "地図をタップするだけで地点やスクリーンショットの情報を投稿でき、地図データの充実に貢献して、より多くの巡礼者の役に立てます。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重ねる不透明度"
           }
         }
       }
     },
-    "对比图生成失败，请检查网络后重试" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to generate the comparison. Please check your network and try again."
+    "合成失败，请重试": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compositing failed. Please try again."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "比較画像の生成に失敗しました。ネットワークを確認して再試行してください。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合成に失敗しました。もう一度お試しください。"
           }
         }
       }
     },
-    "已保存" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Saved"
+    "在地图上点击即可投稿地标截图信息，参与完善地图数据，让更多巡礼人受益。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap on the map to submit location and screenshot info, help refine the map data, and benefit fellow pilgrims."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存しました"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "地図をタップするだけで地点やスクリーンショットの情報を投稿でき、地図データの充実に貢献して、より多くの巡礼者の役に立てます。"
           }
         }
       }
     },
-    "已保存到相册" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Saved to Photos"
+    "好": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アルバムに保存しました"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
           }
         }
       }
     },
-    "开始使用" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Get Started"
+    "完成修补": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "はじめる"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正を完了"
           }
         }
       }
     },
-    "拍照" : {
-      "comment" : "Accessibility label for the shutter button",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Take photo"
+    "对比图生成失败，请检查网络后重试": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to generate the comparison. Please check your network and try again."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "撮影"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較画像の生成に失敗しました。ネットワークを確認して再試行してください。"
           }
         }
       }
     },
-    "探索动画巡礼圣地" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Explore Anime Pilgrimage Sites"
+    "已保存": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アニメ聖地を探す"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存しました"
           }
         }
       }
     },
-    "无法加载图片" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to Load Image"
+    "已保存到相册": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved to Photos"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "画像を読み込めません"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アルバムに保存しました"
           }
         }
       }
     },
-    "无法访问相机" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cannot Access Camera"
+    "开始使用": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Started"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カメラにアクセスできません"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "はじめる"
           }
         }
       }
     },
-    "更换参考图" : {
-      "comment" : "Accessibility label / button to replace the anime reference image",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Change reference image"
+    "手动修补": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual touch-up"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "参考画像を変更"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動修正"
           }
         }
       }
     },
-    "本工具基于社区共建，数据遵循 署名、非商业性使用、相同方式共享 的 CC BY-NC-SA 4.0 协议共享。" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This tool is built by the community. Its data is shared under the CC BY-NC-SA 4.0 license (Attribution–NonCommercial–ShareAlike)."
+    "拍照": {
+      "comment": "Accessibility label for the shutter button",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Take photo"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本ツールはコミュニティによって共同構築されています。データは CC BY-NC-SA 4.0（表示—非営利—継承）ライセンスのもとで共有されています。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撮影"
           }
         }
       }
     },
-    "欢迎来到" : {
-      "comment" : "First line of the onboarding welcome title, followed by the app name",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Welcome to"
+    "探索动画巡礼圣地": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explore Anime Pilgrimage Sites"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ようこそ"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アニメ聖地を探す"
           }
         }
       }
     },
-    "正在准备相机..." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Preparing camera…"
+    "撤销一笔": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo stroke"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カメラを準備中…"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一筆取り消す"
           }
         }
       }
     },
-    "正在加载参考图…" : {
-      "comment" : "Loading indicator shown in the viewport while the reference image downloads",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading reference image…"
+    "无法加载图片": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to Load Image"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "参考画像を読み込み中…"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を読み込めません"
           }
         }
       }
     },
-    "汇集大量动画、漫画、游戏等作品的实地取景地标与配套截图，为你的巡礼做好准备。" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A rich collection of real-world filming locations and matching screenshots from anime, manga, games, and more — everything you need to prepare for your pilgrimage."
+    "无法访问相机": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot Access Camera"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アニメ・マンガ・ゲームなど数多くの作品の実際のロケ地と対応するスクリーンショットを集約。巡礼の準備に役立ちます。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラにアクセスできません"
           }
         }
       }
     },
-    "生成失败" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Generation Failed"
+    "更换参考图": {
+      "comment": "Accessibility label / button to replace the anime reference image",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change reference image"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "生成に失敗しました"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参考画像を変更"
           }
         }
       }
     },
-    "生成对比" : {
-      "comment" : "Button caption to generate the comparison image",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Compare"
+    "本工具基于社区共建，数据遵循 署名、非商业性使用、相同方式共享 的 CC BY-NC-SA 4.0 协议共享。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tool is built by the community. Its data is shared under the CC BY-NC-SA 4.0 license (Attribution–NonCommercial–ShareAlike)."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "比較を生成"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本ツールはコミュニティによって共同構築されています。データは CC BY-NC-SA 4.0（表示—非営利—継承）ライセンスのもとで共有されています。"
           }
         }
       }
     },
-    "相册" : {
-      "comment" : "Button to pick an existing photo from the photo library as the captured image",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Library"
+    "欢迎来到": {
+      "comment": "First line of the onboarding welcome title, followed by the app name",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome to"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アルバム"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ようこそ"
           }
         }
       }
     },
-    "相机" : {
-      "comment" : "Resource name used in permission alerts",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Camera"
+    "正在准备相机...": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing camera…"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カメラ"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラを準備中…"
           }
         }
       }
     },
-    "确定" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
+    "正在加载参考图…": {
+      "comment": "Loading indicator shown in the viewport while the reference image downloads",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading reference image…"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参考画像を読み込み中…"
           }
         }
       }
     },
-    "网页版" : {
-      "comment" : "Accessibility label for opening the web-based comparison generator",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Web version"
+    "正在去除背景": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removing background"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Web版"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景を除去中"
           }
         }
       }
     },
-    "要使用该功能，请在设备的\"设置\"中允许应用访问%@" : {
-      "comment" : "Permission alert body; %@ is the resource name, e.g. Camera",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "To use this feature, please allow this app to access %@ in Settings."
+    "汇集大量动画、漫画、游戏等作品的实地取景地标与配套截图，为你的巡礼做好准备。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A rich collection of real-world filming locations and matching screenshots from anime, manga, games, and more — everything you need to prepare for your pilgrimage."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この機能を使用するには、デバイスの「設定」でこのアプリの%@へのアクセスを許可してください。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アニメ・マンガ・ゲームなど数多くの作品の実際のロケ地と対応するスクリーンショットを集約。巡礼の準備に役立ちます。"
           }
         }
       }
     },
-    "请在设备的\"设置\"中允许应用访问相机" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Please allow this app to access the camera in Settings."
+    "没能分离出角色": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No character found"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "デバイスの「設定」でこのアプリのカメラへのアクセスを許可してください。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャラクターを検出できません"
           }
         }
       }
     },
-    "身处巡礼地附近？快速查找你当前位置周围的动画取景地，开启一场说走就走的发现之旅。" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Near a pilgrimage spot? Quickly find anime filming locations around you and set off on a spur-of-the-moment journey of discovery."
+    "点一下自动选取整块 · 拖动手动涂抹": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to auto-select a region · Drag to paint"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "聖地の近くにいますか？現在地周辺のアニメロケ地をすばやく見つけて、思い立ったらすぐに発見の旅へ。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップで領域を自動選択・ドラッグで手動塗り"
           }
         }
       }
     },
-    "轻松贡献与共建" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Contribute and Build Together"
+    "生成失败": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generation Failed"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "気軽に投稿・共同編集"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生成に失敗しました"
           }
         }
       }
     },
-    "返回" : {
-      "comment" : "Accessibility label for the back button",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Back"
+    "生成对比": {
+      "comment": "Button caption to generate the comparison image",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compare"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "戻る"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較を生成"
           }
         }
       }
     },
-    "重拍" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Retake"
+    "相册": {
+      "comment": "Button to pick an existing photo from the photo library as the captured image",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Library"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "撮り直す"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アルバム"
           }
         }
       }
     },
-    "重置对齐" : {
-      "comment" : "Button to reset the overlay's pan/zoom/rotation transform",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reset alignment"
+    "相机": {
+      "comment": "Resource name used in permission alerts",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "位置をリセット"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラ"
           }
         }
       }
     },
-    "重试" : {
-      "comment" : "Retry button when the reference image failed to load",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Retry"
+    "确定": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "再試行"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
           }
         }
       }
     },
-    "随时随地发现周边" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Discover Spots Anytime, Anywhere"
+    "笔刷粗细": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brush size"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "いつでもどこでも周辺を発見"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラシの太さ"
+          }
+        }
+      }
+    },
+    "网页版": {
+      "comment": "Accessibility label for opening the web-based comparison generator",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web version"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web版"
+          }
+        }
+      }
+    },
+    "要使用该功能，请在设备的\"设置\"中允许应用访问%@": {
+      "comment": "Permission alert body; %@ is the resource name, e.g. Camera",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To use this feature, please allow this app to access %@ in Settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この機能を使用するには、デバイスの「設定」でこのアプリの%@へのアクセスを許可してください。"
+          }
+        }
+      }
+    },
+    "请在设备的\"设置\"中允许应用访问相机": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Please allow this app to access the camera in Settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスの「設定」でこのアプリのカメラへのアクセスを許可してください。"
+          }
+        }
+      }
+    },
+    "身处巡礼地附近？快速查找你当前位置周围的动画取景地，开启一场说走就走的发现之旅。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Near a pilgrimage spot? Quickly find anime filming locations around you and set off on a spur-of-the-moment journey of discovery."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聖地の近くにいますか？現在地周辺のアニメロケ地をすばやく見つけて、思い立ったらすぐに発見の旅へ。"
+          }
+        }
+      }
+    },
+    "轻松贡献与共建": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contribute and Build Together"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "気軽に投稿・共同編集"
+          }
+        }
+      }
+    },
+    "返回": {
+      "comment": "Accessibility label for the back button",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る"
+          }
+        }
+      }
+    },
+    "这张参考图里没识别到清晰的角色主体，仍可用整图叠加对齐。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No clear character subject was detected in this reference image. You can still align using the full image overlay."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この参考画像から明確なキャラクターを検出できませんでした。画像全体の重ね合わせでの位置合わせは引き続き利用できます。"
+          }
+        }
+      }
+    },
+    "重拍": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retake"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撮り直す"
+          }
+        }
+      }
+    },
+    "重置对齐": {
+      "comment": "Button to reset the overlay's pan/zoom/rotation transform",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset alignment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置をリセット"
+          }
+        }
+      }
+    },
+    "重试": {
+      "comment": "Retry button when the reference image failed to load",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "随时随地发现周边": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discover Spots Anytime, Anywhere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いつでもどこでも周辺を発見"
           }
         }
       }
     }
   },
-  "version" : "1.0"
+  "version": "1.0"
 }
