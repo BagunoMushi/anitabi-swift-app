@@ -36,7 +36,8 @@ struct AnitabiDataset: Sendable {
 actor AnitabiDataLoader {
     static let shared = AnitabiDataLoader()
 
-    private let origin = "https://www.anitabi.cn"
+    private static let originString = "https://www.anitabi.cn"
+    private let origin = AnitabiDataLoader.originString
     private let detailShardCount = 7  // g0 … g6
 
     private lazy var session: URLSession = {
@@ -119,6 +120,40 @@ actor AnitabiDataLoader {
         return dataset
     }
 
+    // MARK: users.csv / bangumi-icons.json
+
+    /// `/d/users.csv` → 投稿者 ID → ニックネームのマップ（約 1214 行）。
+    /// 失敗時はディスクキャッシュへフォールバックする（成功時は上書き保存）。
+    func loadUsers() async -> [Int: String] {
+        let buster = Self.cacheBuster
+        if let data = try? await fetch(path: "/d/users.csv", buster: buster),
+           let map = Self.parseUsers(data), !map.isEmpty {
+            store(data, for: .users)
+            return map
+        }
+        log.warning("users.csv の取得に失敗（キャッシュへフォールバック）")
+        if let cached = cachedData(for: .users), let map = Self.parseUsers(cached) {
+            return map
+        }
+        return [:]
+    }
+
+    /// `/d/bangumi-icons.json` → 独自アイコンを持つ作品 ID 一覧とスプライト画像 URL。
+    /// スプライト画像本体のダウンロードは本メソッドの範囲外（次段の `BangumiIconSprite` が担当）。
+    func loadIconIndex() async -> (ids: [Int], spriteURL: URL)? {
+        let buster = Self.cacheBuster
+        if let data = try? await fetch(path: "/d/bangumi-icons.json", buster: buster),
+           let result = Self.parseIconIndex(data) {
+            store(data, for: .icons)
+            return result
+        }
+        log.warning("bangumi-icons.json の取得に失敗（キャッシュへフォールバック）")
+        if let cached = cachedData(for: .icons), let result = Self.parseIconIndex(cached) {
+            return result
+        }
+        return nil
+    }
+
     // MARK: ネットワーク
 
     private func fetch(path: String, buster: String) async throws -> Data {
@@ -137,11 +172,15 @@ actor AnitabiDataLoader {
     private enum CacheSlot {
         case list
         case details(Int)
+        case users
+        case icons
 
         var filename: String {
             switch self {
             case .list: "g.json"
             case .details(let i): "g\(i).json"
+            case .users: "users.csv"
+            case .icons: "bangumi-icons.json"
             }
         }
     }
@@ -190,6 +229,15 @@ struct PointDetail: Sendable {
     var nameCN: String?
     var image: String?
     var ep: String?
+    var isFolder: Bool = false
+    var folderName: String?
+    var mid: String?
+    var uid: Int?
+    var fid: String?
+    var timecodeS: Int?
+    var note: String?
+    var origin: String?
+    var originLink: String?
 }
 
 extension AnitabiDataLoader {
@@ -198,7 +246,9 @@ extension AnitabiDataLoader {
     ///
     /// ルートは `[bangumiLiteList, pageSize, modified]`。
     /// 1 作品のレコード（18 要素）のうち本アプリが使うのは
-    /// `0:id 1:cn 3:title 4:city 5:color 6:cover 8:cat 9:lat 10:lng 11:zoom 12:points`。
+    /// `0:id 1:cn 2:en 3:title 4:city 5:color 6:cover 7:score 8:cat 9:lat 10:lng
+    /// 11:zoom 12:points 13:abbr 15:priority`。`14:tags[] 16:icon 17:tAbbr` は未使用
+    /// （`icon` の有無は `bangumi-icons.json` の `ids` 側から判定するため）。
     static func parseBangumiList(_ data: Data) -> AnitabiDataset? {
         guard
             let root = try? JSONSerialization.jsonObject(with: data) as? [Any],
@@ -222,14 +272,18 @@ extension AnitabiDataLoader {
             let bangumi = BangumiLite(
                 id: id,
                 cn: record.string(1),
+                en: record.string(2),
                 title: record.string(3),
                 city: record.string(4),
                 colorHex: record.string(5),
                 cover: record.string(6),
+                score: record.double(7),
                 cat: record.string(8),
                 center: record.coordinate(lat: 9, lng: 10),
                 zoom: record.double(11),
-                points: geos
+                points: geos,
+                abbr: record.string(13),
+                priority: record.int(15) ?? 999
             )
             bangumis.append(bangumi)
 
@@ -278,7 +332,9 @@ extension AnitabiDataLoader {
     /// `/d/g{n}.json` → 地標 ID ごとの詳細。
     ///
     /// ルートはセルの配列。1 セルは `[bangumiId, theme, points[], modified]`、
-    /// 1 地標は 15 要素で `0:id 1:name 2:cn 7:image 9:ep`。
+    /// 1 地標は 15 要素で
+    /// `0:id 1:name 2:cn 3:isFolder 4:folderName 5:mid 6:uid 7:image 8:fid 9:ep
+    /// 10:timecodeS 11:note(mark) 12:origin 13:originLink`。`14:density` は未使用。
     static func parsePointDetails(
         _ data: Data,
         into store: inout [String: PointDetail],
@@ -300,7 +356,16 @@ extension AnitabiDataLoader {
                     name: point.string(1),
                     nameCN: point.string(2),
                     image: point.string(7),
-                    ep: point.episode(9)
+                    ep: point.episode(9),
+                    isFolder: point.bool(3),
+                    folderName: point.string(4),
+                    mid: point.string(5),
+                    uid: point.int(6),
+                    fid: point.string(8),
+                    timecodeS: point.int(10),
+                    note: point.string(11),
+                    origin: point.string(12),
+                    originLink: point.string(13)
                 )
             }
         }
@@ -314,7 +379,72 @@ extension AnitabiDataLoader {
             points[index].nameCN = detail.nameCN
             points[index].image = detail.image
             points[index].ep = detail.ep
+            points[index].isFolder = detail.isFolder
+            points[index].folderName = detail.folderName
+            points[index].mid = detail.mid
+            points[index].uid = detail.uid
+            points[index].fid = detail.fid
+            points[index].timecodeS = detail.timecodeS
+            points[index].note = detail.note
+            points[index].origin = detail.origin
+            points[index].originLink = detail.originLink
         }
+    }
+}
+
+// MARK: - users.csv / bangumi-icons.json パース
+
+extension AnitabiDataLoader {
+
+    /// `id,昵称` 形式の CSV。昵称にカンマを含み得るため **最初のカンマだけ**で分割する。
+    static func parseUsers(_ data: Data) -> [Int: String]? {
+        guard let text = String(data: data, encoding: .utf8) else {
+            log.error("users.csv を UTF-8 として読めませんでした")
+            return nil
+        }
+        var result: [Int: String] = [:]
+        text.enumerateLines { rawLine, _ in
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, let commaIndex = line.firstIndex(of: ",") else { return }
+            guard let id = Int(line[line.startIndex..<commaIndex]) else { return }
+            guard let name = String(line[line.index(after: commaIndex)...]).nilIfBlank else { return }
+            result[id] = name
+        }
+        return result
+    }
+
+    /// `{ "src": "/d/bangumi-icons.webp?v=hash", "ids": [id, ...] }`。
+    /// `src` は相対パスで来るため `www.anitabi.cn` 基準の絶対 URL に直す。
+    static func parseIconIndex(_ data: Data) -> (ids: [Int], spriteURL: URL)? {
+        guard
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let src = root["src"] as? String,
+            let rawIDs = root["ids"] as? [Any]
+        else {
+            log.error("bangumi-icons.json を読めませんでした")
+            return nil
+        }
+        guard let url = absoluteDPath(src) else { return nil }
+        let ids = rawIDs.compactMap { value -> Int? in
+            switch value {
+            case let v as Int: v
+            case let v as Double: Int(v)
+            case let v as String: Int(v)
+            default: nil
+            }
+        }
+        return (ids: ids, spriteURL: url)
+    }
+
+    /// `/d/...` の相対パスを `www.anitabi.cn` 基準の絶対 URL にする。
+    private static func absoluteDPath(_ path: String) -> URL? {
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            return URL(string: path)
+        }
+        if path.hasPrefix("/") {
+            return URL(string: originString + path)
+        }
+        return URL(string: originString + "/" + path)
     }
 }
 
@@ -354,6 +484,18 @@ private extension Array where Element == Any {
         case let v as Int: String(v)
         case let v as Double: v == v.rounded() ? String(Int(v)) : String(v)
         default: nil
+        }
+    }
+
+    /// `isFolder` などのフラグ。Bool / 0-1 の Int・Double / "true"-"1" 文字列を許容し、
+    /// それ以外（未設定含む）は false に降格する。
+    func bool(_ index: Int) -> Bool {
+        switch value(index) {
+        case let v as Bool: v
+        case let v as Int: v != 0
+        case let v as Double: v != 0
+        case let v as String: v == "true" || v == "1"
+        default: false
         }
     }
 

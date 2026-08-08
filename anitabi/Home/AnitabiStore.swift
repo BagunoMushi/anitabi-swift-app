@@ -7,6 +7,7 @@
 //
 
 import CoreLocation
+import MapKit
 import Observation
 import OSLog
 import SwiftUI
@@ -86,6 +87,16 @@ final class AnitabiStore {
     /// 検索用の小文字化済みインデックス。キーストロークごとに再生成しない。
     private var searchIndex: [SearchEntry] = []
 
+    /// 作品 ID → その作品に属する地標。`groupedPoints`/`screenshotCount`/`contributorSummary` が使う。
+    private(set) var pointsByBangumi: [Int: [ScenePoint]] = [:]
+    /// 作品 ID → スクリーンショット付き地標数（`pointsByBangumi` と一緒に事前計算）。
+    private var screenshotCountByBangumi: [Int: Int] = [:]
+
+    /// 投稿者 User ID → ニックネーム（`/d/users.csv`）。起動の非クリティカルパスで低優先度に取得する。
+    private(set) var usersByID: [Int: String] = [:]
+    /// `bangumi-icons.json` のスプライト画像 URL。画像本体のダウンロードは次段（`BangumiIconSprite`）が担当。
+    private(set) var iconSpriteURL: URL?
+
     // MARK: 派生状態
 
     private(set) var nearby: [NearbyPoint] = []
@@ -96,6 +107,8 @@ final class AnitabiStore {
 
     /// 直近に開いた作品。半开档の上下文卡に出す。
     private(set) var lastVisitedBangumi: BangumiLite?
+    /// 直近に開いた作品 ID の履歴（最大 10 件、新しいものが先頭、重複なし）。
+    private(set) var recentVisits: [Int] = []
 
     var isEmpty: Bool { points.isEmpty }
 
@@ -135,6 +148,20 @@ final class AnitabiStore {
             }
             log.error("データ更新に失敗：\(error.localizedDescription)")
         }
+
+        // 3) users.csv / bangumi-icons.json はクリティカルパスではないので低優先度で追走させる。
+        // （サンプルデータ利用時は先頭で return 済みなのでここに来ない）
+        Task(priority: .background) { [weak self] in
+            let users = await AnitabiDataLoader.shared.loadUsers()
+            guard let self else { return }
+            self.usersByID = users
+        }
+        Task(priority: .background) { [weak self] in
+            guard let iconIndex = await AnitabiDataLoader.shared.loadIconIndex() else { return }
+            guard let self else { return }
+            self.iconSpriteURL = iconIndex.spriteURL
+            self.applyIconIndex(iconIndex.ids)
+        }
     }
 
     private func apply(_ dataset: AnitabiDataset) {
@@ -149,7 +176,18 @@ final class AnitabiStore {
         rebuildSearchIndex()
         rebuildCities()
         rebuildWorkLists()
+        rebuildBangumiPointIndex()
         restoreLastVisited()
+    }
+
+    /// `bangumi-icons.json` の `ids` を `BangumiLite.hasIcon` に回填する。
+    private func applyIconIndex(_ ids: [Int]) {
+        guard !ids.isEmpty else { return }
+        let idSet = Set(ids)
+        for index in bangumis.indices {
+            bangumis[index].hasIcon = idSet.contains(bangumis[index].id)
+        }
+        bangumiByID = Dictionary(bangumis.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
     // MARK: - 附近
@@ -224,7 +262,13 @@ final class AnitabiStore {
     }
 
     /// ローカル全文検索。全データが手元にあるので同期で返す＝ローディング表示は不要。
-    func search(_ query: String, near location: CLLocation?, limit: Int = 40) -> [SearchResult] {
+    /// 上限は作品 ≤`workLimit`・地標 ≤`sceneLimit`（合計は既定で 60 件）。
+    func search(
+        _ query: String,
+        near location: CLLocation?,
+        workLimit: Int = 10,
+        sceneLimit: Int = 50
+    ) -> [SearchResult] {
         guard let needle = query.nilIfBlank?.lowercased() else { return [] }
 
         var works: [BangumiLite] = []
@@ -233,11 +277,11 @@ final class AnitabiStore {
         for entry in searchIndex {
             guard entry.key.contains(needle) else { continue }
             if let pointIndex = entry.pointIndex {
-                if scenes.count < limit { scenes.append(points[pointIndex]) }
+                if scenes.count < sceneLimit { scenes.append(points[pointIndex]) }
             } else if let bangumi = bangumiByID[entry.bangumiID] {
-                if works.count < 10 { works.append(bangumi) }
+                if works.count < workLimit { works.append(bangumi) }
             }
-            if works.count >= 10 && scenes.count >= limit { break }
+            if works.count >= workLimit && scenes.count >= sceneLimit { break }
         }
 
         // 作品は地標数の多い順＝情報量の多い順（Web 版の並びと同じ考え方）
@@ -249,8 +293,8 @@ final class AnitabiStore {
             }
         }
 
-        return works.prefix(4).map { SearchResult.bangumi($0) }
-            + scenes.prefix(limit).map { point in
+        return works.prefix(workLimit).map { SearchResult.bangumi($0) }
+            + scenes.prefix(sceneLimit).map { point in
                 SearchResult.point(point, distance: location.map { distance(from: $0, to: point) })
             }
     }
@@ -339,6 +383,166 @@ final class AnitabiStore {
         }
     }
 
+    /// 「ランダムな作品」の候補 = スクリーンショット付き地標が 3 件超ある作品。
+    func randomWork() -> BangumiLite? {
+        bangumis.filter { screenshotCount(forBangumi: $0.id) > 3 }.randomElement()
+    }
+
+    /// 作品のスクリーンショット付き地標数（`rebuildBangumiPointIndex` で事前計算）。
+    func screenshotCount(forBangumi id: Int) -> Int {
+        screenshotCountByBangumi[id] ?? 0
+    }
+
+    private func rebuildBangumiPointIndex() {
+        var grouped: [Int: [ScenePoint]] = [:]
+        grouped.reserveCapacity(bangumis.count)
+        for point in points {
+            grouped[point.bangumiID, default: []].append(point)
+        }
+        pointsByBangumi = grouped
+        screenshotCountByBangumi = grouped.mapValues { pts in
+            pts.reduce(into: 0) { count, point in
+                if point.image != nil { count += 1 }
+            }
+        }
+    }
+
+    // MARK: - 視口
+
+    /// 現在の地図表示範囲に地標を持つ作品を、点数の多い順に集計する（chips 用）。
+    /// 全点の線形走査だが、呼び出し側でデバウンスする前提。
+    func worksInViewport(region: MKCoordinateRegion) -> [(id: Int, count: Int)] {
+        let latHalf = region.span.latitudeDelta / 2
+        let lngHalf = region.span.longitudeDelta / 2
+        let minLat = region.center.latitude - latHalf
+        let maxLat = region.center.latitude + latHalf
+        let minLng = region.center.longitude - lngHalf
+        let maxLng = region.center.longitude + lngHalf
+
+        var counts: [Int: Int] = [:]
+        for point in points {
+            guard
+                point.lat >= minLat, point.lat <= maxLat,
+                point.lng >= minLng, point.lng <= maxLng
+            else { continue }
+            counts[point.bangumiID, default: 0] += 1
+        }
+        return counts.map { (id: $0.key, count: $0.value) }.sorted { $0.count > $1.count }
+    }
+
+    // MARK: - 作品内グルーピング
+
+    /// 作品詳細パネルの「フォルダ」「話数」タブ用の束ね。Web 版のロジックを移植。
+    func groupedPoints(for bangumiID: Int, mode: WorkGroupingMode) -> [PointGroup] {
+        let pts = pointsByBangumi[bangumiID] ?? []
+        return switch mode {
+        case .folder: groupedByFolder(pts, bangumiID: bangumiID)
+        case .episode: groupedByEpisode(pts)
+        }
+    }
+
+    /// folder モード：
+    /// - `isFolder` の点は自身がグループになる（その点自身を先頭行として残す）
+    /// - `fid` を持つ点は対応する `isFolder` 点のグループへ
+    /// - `folderName` 文字列を持つ点（旧データ）はその名前でグループへ
+    /// - それ以外は作品名を組名にしたデフォルトグループへ
+    /// - 結果が空のグループは作らない（`isFolder` 自身のグループは常に非空）
+    private func groupedByFolder(_ pts: [ScenePoint], bangumiID: Int) -> [PointGroup] {
+        var folderOrder: [String] = []
+        var membersByFolderID: [String: [ScenePoint]] = [:]
+        for point in pts where point.isFolder {
+            folderOrder.append(point.id)
+            membersByFolderID[point.id] = [point]
+        }
+
+        var namedOrder: [String] = []
+        var membersByName: [String: [ScenePoint]] = [:]
+        var defaultMembers: [ScenePoint] = []
+
+        for point in pts where !point.isFolder {
+            if let fid = point.fid, membersByFolderID[fid] != nil {
+                membersByFolderID[fid]?.append(point)
+                continue
+            }
+            if let folderName = point.folderName?.nilIfBlank {
+                if membersByName[folderName] == nil {
+                    namedOrder.append(folderName)
+                    membersByName[folderName] = []
+                }
+                membersByName[folderName]?.append(point)
+                continue
+            }
+            defaultMembers.append(point)
+        }
+
+        var groups: [PointGroup] = []
+        for fid in folderOrder {
+            guard let members = membersByFolderID[fid], !members.isEmpty else { continue }
+            let name = members.first?.displayName.nilIfBlank ?? fid
+            groups.append(PointGroup(id: fid, name: name, points: members))
+        }
+        for name in namedOrder {
+            guard let members = membersByName[name], !members.isEmpty else { continue }
+            groups.append(PointGroup(id: "name:\(name)", name: name, points: members))
+        }
+        if !defaultMembers.isEmpty {
+            groups.append(
+                PointGroup(id: "default:\(bangumiID)", name: name(forBangumi: bangumiID), points: defaultMembers)
+            )
+        }
+        return groups
+    }
+
+    /// episode モード：純数字組は数値昇順で先頭、非数字組は `localizedCompare` でその後、
+    /// `ep` の無い点は「未分组」として最後にまとめる（本段階は未ローカライズの固定文言）。
+    private func groupedByEpisode(_ pts: [ScenePoint]) -> [PointGroup] {
+        var numericOrder: [String] = []
+        var numericMembers: [String: [ScenePoint]] = [:]
+        var nonNumericOrder: [String] = []
+        var nonNumericMembers: [String: [ScenePoint]] = [:]
+        var unassigned: [ScenePoint] = []
+
+        for point in pts {
+            guard let ep = point.ep?.nilIfBlank else {
+                unassigned.append(point)
+                continue
+            }
+            if Int(ep) != nil {
+                if numericMembers[ep] == nil {
+                    numericOrder.append(ep)
+                    numericMembers[ep] = []
+                }
+                numericMembers[ep]?.append(point)
+            } else {
+                if nonNumericMembers[ep] == nil {
+                    nonNumericOrder.append(ep)
+                    nonNumericMembers[ep] = []
+                }
+                nonNumericMembers[ep]?.append(point)
+            }
+        }
+
+        let numericGroups = numericOrder
+            .sorted { (Int($0) ?? 0) < (Int($1) ?? 0) }
+            .compactMap { ep -> PointGroup? in
+                guard let members = numericMembers[ep], !members.isEmpty else { return nil }
+                return PointGroup(id: "ep:\(ep)", name: ep, points: members)
+            }
+
+        let nonNumericGroups = nonNumericOrder
+            .sorted { $0.localizedCompare($1) == .orderedAscending }
+            .compactMap { ep -> PointGroup? in
+                guard let members = nonNumericMembers[ep], !members.isEmpty else { return nil }
+                return PointGroup(id: "ep:\(ep)", name: ep, points: members)
+            }
+
+        var groups = numericGroups + nonNumericGroups
+        if !unassigned.isEmpty {
+            groups.append(PointGroup(id: "ep:none", name: "未分组", points: unassigned))
+        }
+        return groups
+    }
+
     // MARK: - 参照
 
     func bangumi(id: Int) -> BangumiLite? { bangumiByID[id] }
@@ -351,10 +555,46 @@ final class AnitabiStore {
         bangumiByID[id]?.displayName ?? ""
     }
 
+    // MARK: - 投稿者
+
+    /// User ID → ニックネーム（`/d/users.csv`）。未取得・該当なしは nil。
+    func userNickname(_ uid: Int) -> String? {
+        usersByID[uid]
+    }
+
+    /// 地標に添える出典表示。優先度は `origin` の文言 → `uid` のニックネーム（`@名前`）→ nil。
+    /// `mid`（Google マイマップ由来）の「地図インポート」表記は UI 層の判断に委ねる。
+    func contributorLabel(for point: ScenePoint) -> String? {
+        if let origin = point.origin?.nilIfBlank { return origin }
+        if let uid = point.uid, let nickname = usersByID[uid]?.nilIfBlank {
+            return "@\(nickname)"
+        }
+        return nil
+    }
+
+    /// 作品全体の投稿者サマリー：uid の出現回数上位 2 名のニックネームと、重複排除した投稿者総数。
+    /// `uid` が 1 件も無ければ nil。
+    func contributorSummary(forBangumi id: Int) -> (top: [String], total: Int)? {
+        guard let pts = pointsByBangumi[id] else { return nil }
+        var counts: [Int: Int] = [:]
+        for point in pts {
+            guard let uid = point.uid else { continue }
+            counts[uid, default: 0] += 1
+        }
+        guard !counts.isEmpty else { return nil }
+
+        let ranked = counts.sorted { lhs, rhs in
+            lhs.value != rhs.value ? lhs.value > rhs.value : lhs.key < rhs.key
+        }
+        let top = ranked.prefix(2).compactMap { usersByID[$0.key] }
+        return (top: top, total: counts.count)
+    }
+
     // MARK: - 履歴
 
     private enum Keys {
         static let lastBangumi = "home.lastVisitedBangumiID"
+        static let recentVisits = "home.recentVisitBangumiIDs"
         static let modified = "home.dataModified"
     }
 
@@ -363,13 +603,23 @@ final class AnitabiStore {
         set { UserDefaults.standard.set(newValue, forKey: Keys.modified) }
     }
 
+    /// 訪問を記録する。`lastVisitedBangumi`（単一・互換維持）と `recentVisits`（最大 10 件）の
+    /// 両方を同時に更新する。
     func rememberVisit(bangumiID: Int) {
         UserDefaults.standard.set(bangumiID, forKey: Keys.lastBangumi)
+
+        var ids = recentVisits
+        ids.removeAll { $0 == bangumiID }
+        ids.insert(bangumiID, at: 0)
+        if ids.count > 10 { ids = Array(ids.prefix(10)) }
+        UserDefaults.standard.set(ids, forKey: Keys.recentVisits)
+
         restoreLastVisited()
     }
 
     private func restoreLastVisited() {
         let id = UserDefaults.standard.integer(forKey: Keys.lastBangumi)
         lastVisitedBangumi = id == 0 ? nil : bangumiByID[id]
+        recentVisits = (UserDefaults.standard.array(forKey: Keys.recentVisits) as? [Int]) ?? []
     }
 }
