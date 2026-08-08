@@ -200,7 +200,8 @@ enum AnitabiImage {
         } else if raw.hasPrefix("https://") {
             absolute = raw
         } else if raw.hasPrefix("/images/") {
-            absolute = "https://image.anitabi.cn" + raw
+            // `/images` セグメントを剥がして img-tc に載せ替える（image.anitabi.cn/images/... は 404）。
+            absolute = "https://img-tc.anitabi.cn" + raw.dropFirst("/images".count)
         } else if raw.hasPrefix("/") {
             absolute = "https://img-tc.anitabi.cn" + raw
         } else {

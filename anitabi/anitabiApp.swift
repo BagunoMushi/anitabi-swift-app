@@ -33,9 +33,23 @@ struct anitabiApp: App {
 
     var body: some Scene {
         WindowGroup {
-            // ネイティブ再構築版の首屏。旧 WebView 版に戻したいときは `ContentView()` に差し替える
-            // （ContentView.swift 以下の WebView 一式はそのまま残してある）。
+            root
+        }
+    }
+
+    @ViewBuilder
+    private var root: some View {
+        #if DEBUG
+        // 地図エンジン単体の検証台。既定の首屏は差し替えない。
+        if CommandLine.arguments.contains("-mapEngineHarness") {
+            MapEngineHarness()
+        } else {
             MapHomeView()
         }
+        #else
+        // ネイティブ再構築版の首屏。旧 WebView 版に戻したいときは `ContentView()` に差し替える
+        // （ContentView.swift 以下の WebView 一式はそのまま残してある）。
+        MapHomeView()
+        #endif
     }
 }

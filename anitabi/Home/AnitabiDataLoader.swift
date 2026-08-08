@@ -333,9 +333,10 @@ extension AnitabiDataLoader {
     /// `/d/g{n}.json` → 地標 ID ごとの詳細。
     ///
     /// ルートはセルの配列。1 セルは `[bangumiId, theme, points[], modified]`、
-    /// 1 地標は 15 要素で
-    /// `0:id 1:name 2:cn 3:isFolder 4:folderName 5:mid 6:uid 7:image 8:fid 9:ep
-    /// 10:timecodeS 11:note(mark) 12:origin 13:originLink`。`14:density` は未使用。
+    /// 1 地標は 15 要素。**ドキュメント（web JS 解析）とは並びが違う**——
+    /// 実データ 5 万件の型統計と実サンプル照合で確定した本当の並びは
+    /// `0:id 1:name 2:folderName 3:isFolder 4:mid 5:uid 6:image 7:fid 8:ep
+    /// 9:timecodeS 10:note(mark) 11:origin 12:originLink 13:cn`。`14:density` は未使用。
     static func parsePointDetails(
         _ data: Data,
         into store: inout [String: PointDetail],
@@ -355,18 +356,18 @@ extension AnitabiDataLoader {
                 guard let id = point.string(0) else { continue }
                 store[id] = PointDetail(
                     name: point.string(1),
-                    nameCN: point.string(2),
-                    image: point.string(7),
-                    ep: point.episode(9),
+                    nameCN: point.string(13),
+                    image: point.string(6),
+                    ep: point.episode(8),
                     isFolder: point.bool(3),
-                    folderName: point.string(4),
-                    mid: point.string(5),
-                    uid: point.int(6),
-                    fid: point.string(8),
-                    timecodeS: point.int(10),
-                    note: point.string(11),
-                    origin: point.string(12),
-                    originLink: point.string(13)
+                    folderName: point.string(2),
+                    mid: point.string(4),
+                    uid: point.int(5),
+                    fid: point.string(7),
+                    timecodeS: point.int(9),
+                    note: point.string(10),
+                    origin: point.string(11),
+                    originLink: point.string(12)
                 )
             }
         }
