@@ -36,7 +36,8 @@ struct AnitabiDataset: Sendable {
 actor AnitabiDataLoader {
     static let shared = AnitabiDataLoader()
 
-    private static let originString = "https://www.anitabi.cn"
+    // `www.anitabi.cn` は 2026-08 時点で応答しない。`ww.` が正常な配信ホスト。
+    private static let originString = "https://ww.anitabi.cn"
     private let origin = AnitabiDataLoader.originString
     private let detailShardCount = 7  // g0 … g6
 
@@ -414,7 +415,7 @@ extension AnitabiDataLoader {
     }
 
     /// `{ "src": "/d/bangumi-icons.webp?v=hash", "ids": [id, ...] }`。
-    /// `src` は相対パスで来るため `www.anitabi.cn` 基準の絶対 URL に直す。
+    /// `src` は相対パスで来るため配信ホスト基準の絶対 URL に直す。
     static func parseIconIndex(_ data: Data) -> (ids: [Int], spriteURL: URL)? {
         guard
             let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -436,7 +437,7 @@ extension AnitabiDataLoader {
         return (ids: ids, spriteURL: url)
     }
 
-    /// `/d/...` の相対パスを `www.anitabi.cn` 基準の絶対 URL にする。
+    /// `/d/...` の相対パスを配信ホスト基準の絶対 URL にする。
     private static func absoluteDPath(_ path: String) -> URL? {
         if path.hasPrefix("http://") || path.hasPrefix("https://") {
             return URL(string: path)
