@@ -37,6 +37,42 @@
         }
       }
     },
+    "%lld 个点": {
+      "comment": "Number of pilgrimage spots in a city",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld spots"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld か所"
+          }
+        }
+      }
+    },
+    "%lld 个点位": {
+      "comment": "Number of pilgrimage spots a work has",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld spots"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld か所"
+          }
+        }
+      }
+    },
     "OK": {
       "localizations": {
         "en": {
@@ -158,6 +194,60 @@
         }
       }
     },
+    "仅在使用期间 · 随时可关": {
+      "comment": "Subtitle of the location prompt card",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While using the app · off anytime"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用中のみ · いつでもオフに"
+          }
+        }
+      }
+    },
+    "作品": {
+      "comment": "Tag marking a search result row as a work (not a spot)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Work"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作品"
+          }
+        }
+      }
+    },
+    "作品浏览": {
+      "comment": "Section header of the work browser",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse works"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作品を見る"
+          }
+        }
+      }
+    },
     "保存": {
       "extractionState": "manual",
       "localizations": {
@@ -244,6 +334,24 @@
         }
       }
     },
+    "切换剧照图层": {
+      "comment": "Accessibility label of the layer button",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle scene image layer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シーン画像レイヤーの切り替え"
+          }
+        }
+      }
+    },
     "切换参考图显示": {
       "comment": "Accessibility label for the button that shows/hides the reference overlay",
       "extractionState": "manual",
@@ -275,6 +383,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定を開く"
+          }
+        }
+      }
+    },
+    "去开启": {
+      "comment": "Button on the location prompt card",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにする"
+          }
+        }
+      }
+    },
+    "去设置": {
+      "comment": "Button on the location prompt card when permission was denied",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定へ"
           }
         }
       }
@@ -349,6 +493,24 @@
         }
       }
     },
+    "回到正北": {
+      "comment": "Accessibility label of the compass button",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Face north"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "北を上に"
+          }
+        }
+      }
+    },
     "在地图上点击即可投稿地标截图信息，参与完善地图数据，让更多巡礼人受益。": {
       "extractionState": "manual",
       "localizations": {
@@ -396,6 +558,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "修正を完了"
+          }
+        }
+      }
+    },
+    "定位到我的位置": {
+      "comment": "Accessibility label of the locate button",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to my location"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在地へ"
           }
         }
       }
@@ -451,6 +631,42 @@
         }
       }
     },
+    "带我去": {
+      "comment": "Button that flies the map to the nearest spot",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Take me there"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そこへ移動"
+          }
+        }
+      }
+    },
+    "开启定位，看看身边的巡礼点": {
+      "comment": "Title of the gentle location prompt card",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on location to see spots near you"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置情報をオンにして近くのスポットを表示"
+          }
+        }
+      }
+    },
     "开始使用": {
       "extractionState": "manual",
       "localizations": {
@@ -464,6 +680,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "はじめる"
+          }
+        }
+      }
+    },
+    "我的收藏": {
+      "comment": "Quick action: saved works",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Favorites"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お気に入り"
           }
         }
       }
@@ -520,6 +754,24 @@
         }
       }
     },
+    "搜索作品、地点或城市": {
+      "comment": "Placeholder of the home sheet search field",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search works, places or cities"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作品・地点・都市を検索"
+          }
+        }
+      }
+    },
     "撤销一笔": {
       "extractionState": "manual",
       "localizations": {
@@ -533,6 +785,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "一筆取り消す"
+          }
+        }
+      }
+    },
+    "数据由 anitabi.cn 社区贡献 · CC BY-NC-SA 4.0": {
+      "comment": "Footer of the home sheet",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data contributed by the anitabi.cn community · CC BY-NC-SA 4.0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データは anitabi.cn コミュニティ提供 · CC BY-NC-SA 4.0"
+          }
+        }
+      }
+    },
+    "新收录": {
+      "comment": "Work browser tab: newly added works",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規収録"
           }
         }
       }
@@ -585,6 +873,60 @@
           "stringUnit": {
             "state": "translated",
             "value": "参考画像を変更"
+          }
+        }
+      }
+    },
+    "最近更新": {
+      "comment": "Work browser tab: recently updated works",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近更新"
+          }
+        }
+      }
+    },
+    "最近的在 %@ · 约 %@": {
+      "comment": "Nearest spot; %1 is the work name, %2 is a distance",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nearest is %1$@ · about %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最寄りは %1$@ · 約 %2$@"
+          }
+        }
+      }
+    },
+    "本地全量数据 · 即输即出": {
+      "comment": "Footnote under search results",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All data on device · instant results"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全データをローカル保持 · 入力即結果"
           }
         }
       }
@@ -676,6 +1018,24 @@
         }
       }
     },
+    "正在载入巡礼数据…": {
+      "comment": "Shown while the full dataset downloads",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading pilgrimage data…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "巡礼データを読み込み中…"
+          }
+        }
+      }
+    },
     "汇集大量动画、漫画、游戏等作品的实地取景地标与配套截图，为你的巡礼做好准备。": {
       "extractionState": "manual",
       "localizations": {
@@ -689,6 +1049,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "アニメ・マンガ・ゲームなど数多くの作品の実際のロケ地と対応するスクリーンショットを集約。巡礼の準備に役立ちます。"
+          }
+        }
+      }
+    },
+    "没有找到相关的作品或地点": {
+      "comment": "Empty state of local search",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching works or places"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該当する作品・地点が見つかりません"
           }
         }
       }
@@ -723,6 +1101,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "タップで領域を自動選択・ドラッグで手動塗り"
+          }
+        }
+      }
+    },
+    "热门": {
+      "comment": "Work browser tab: works with the most spots",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Popular"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人気"
+          }
+        }
+      }
+    },
+    "热门城市": {
+      "comment": "Section header / quick action",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Popular cities"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人気の都市"
           }
         }
       }
@@ -832,6 +1246,24 @@
         }
       }
     },
+    "继续上次": {
+      "comment": "Label above the last visited work card",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回の続き"
+          }
+        }
+      }
+    },
     "网页版": {
       "comment": "Accessibility label for opening the web-based comparison generator",
       "extractionState": "manual",
@@ -864,6 +1296,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "この機能を使用するには、デバイスの「設定」でこのアプリの%@へのアクセスを許可してください。"
+          }
+        }
+      }
+    },
+    "视野内 %lld 部作品 · %lld 点": {
+      "comment": "Map status capsule",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld works · %2$lld spots in view"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示中 %1$lld 作品 · %2$lld か所"
           }
         }
       }
@@ -954,6 +1404,24 @@
         }
       }
     },
+    "这附近还没有巡礼点": {
+      "comment": "Empty state when the user is far from any spot",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No spots around here yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この辺りにはまだスポットがありません"
+          }
+        }
+      }
+    },
     "重拍": {
       "extractionState": "manual",
       "localizations": {
@@ -1007,6 +1475,24 @@
         }
       }
     },
+    "附近的巡礼点": {
+      "comment": "Section header listing spots near the user",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nearby spots"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "近くの巡礼スポット"
+          }
+        }
+      }
+    },
     "随时随地发现周边": {
       "extractionState": "manual",
       "localizations": {
@@ -1020,6 +1506,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "いつでもどこでも周辺を発見"
+          }
+        }
+      }
+    },
+    "随机跳转": {
+      "comment": "Quick action: jump to a random work",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Random"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ランダム"
           }
         }
       }
