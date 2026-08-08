@@ -4,13 +4,37 @@
 //
 //  作品テーマカラー（`#rrggbb`・サーバ由来で色域は不可控）を地図標注で安全に使うための道具。
 //
-//  地図レイヤーは UIKit（CALayer / MKAnnotationView）なので、ここでは SwiftUI の `Color`
-//  ではなく `UIColor` 側に実装する。`Home/DesignTokens.swift` にある `Color(cssHex:)` /
-//  `needsOutlineOnLightPin` と**同じ判定式**だが、あちらは同一モジュール内に既に存在するため
-//  シグネチャを重ねると再宣言エラーになる。DesignTokens 削除後もこのファイルだけで完結する。
+//  地図レイヤーは UIKit（CALayer / MKAnnotationView）なので、色判定の主実装は SwiftUI の
+//  `Color` ではなく `UIColor` 側に置く。ただし `AnitabiModels.themeColor`（データ層、SwiftUI）
+//  が `Color(cssHex:)`/`Color(hex:)` を必要とするため、`Home/DesignTokens.swift` 削除に伴い
+//  その 2 つの initializer もここへ合流させた（阶段 9）。
 //
 
+import SwiftUI
 import UIKit
+
+extension Color {
+    init(hex: UInt32, alpha: Double = 1) {
+        self.init(
+            .sRGB,
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255,
+            opacity: alpha
+        )
+    }
+
+    /// `#rrggbb` / `rrggbb` 字符串（作品主题色来自服务端，格式不完全可控）。
+    init?(cssHex: String) {
+        var s = cssHex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("#") { s.removeFirst() }
+        if s.count == 3 {
+            s = s.map { "\($0)\($0)" }.joined()
+        }
+        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+        self.init(hex: v)
+    }
+}
 
 extension UIColor {
 

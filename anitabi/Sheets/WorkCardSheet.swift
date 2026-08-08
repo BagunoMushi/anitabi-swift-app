@@ -57,7 +57,7 @@ struct WorkCardSheet: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
                 titleSection
                 headerCard
                 actionRow
@@ -74,9 +74,9 @@ struct WorkCardSheet: View {
                 )
                 footerCard
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, SheetMetrics.horizontalPadding)
             // grabber と見出しがぶつからない分の余白。最小档 128pt はこの見出し 2 行ぶん。
-            .padding(.top, 20)
+            .padding(.top, SheetMetrics.topInset)
             .padding(.bottom, 24)
         }
         .onAppear { resetCollapseState() }
@@ -88,12 +88,14 @@ struct WorkCardSheet: View {
 
     private var titleSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 8) {
                 Text(store.name(forBangumi: workID))
-                    .font(.title2.bold())
+                    .font(.title2.weight(.bold))
                     .lineLimit(2)
                 Spacer(minLength: 0)
+                // 丸釦は当たり判定 44pt ぶん外へ膨らんでいるので、右端を 15pt に戻す。
                 CardCloseButton(action: onClose)
+                    .padding(.trailing, -7)
             }
             HStack(spacing: 6) {
                 ThemeDot(color: store.color(forBangumi: workID))
@@ -109,9 +111,9 @@ struct WorkCardSheet: View {
         var parts: [String] = []
         if let cat = bangumi?.cat?.nilIfBlank { parts.append(cat) }
         if let city = bangumi?.city?.nilIfBlank { parts.append(city) }
-        parts.append("\(points.count) 个点位")
+        parts.append(String(localized: "\(points.count) 个点位"))
         let screenshotCount = store.screenshotCount(forBangumi: workID)
-        if screenshotCount > 0 { parts.append("\(screenshotCount) 张截图") }
+        if screenshotCount > 0 { parts.append(String(localized: "\(screenshotCount) 张截图")) }
         return parts.joined(separator: " · ")
     }
 
@@ -171,19 +173,21 @@ struct WorkCardSheet: View {
 
     // MARK: 4. 動作排
 
+    /// 地点カードと同じ等幅タイル（実測 総高 51pt・icon 上＋`.footnote` 下）。
+    /// Apple では動作排のタイルは**枚数に関係なく行幅を等分**する（連絡先カードで
+    /// 動作が 2 つしか無い場合も 2 枚で幅を分け合う）ので、ここも 2 枚で等分にする。
+    /// 主・次は色だけで分け、寸法は揃える。
     private var actionRow: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Button(action: onRefit) {
-                Label("查看全部点位", systemImage: "map")
-                    .frame(maxWidth: .infinity, minHeight: 50)
+                ActionTileLabel(systemImage: "map", title: "查看全部点位")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(ActionTileButtonStyle(prominent: true))
 
             ShareLink(item: shareURL, subject: shareSubject) {
-                Label("分享", systemImage: "square.and.arrow.up")
-                    .frame(maxWidth: .infinity, minHeight: 50)
+                ActionTileLabel(systemImage: "square.and.arrow.up", title: "分享")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(ActionTileButtonStyle())
         }
     }
 
@@ -215,12 +219,11 @@ struct WorkCardSheet: View {
                     withAnimation(.anitabiSpring) { collapsedGroupIDs = Set(groups.map(\.id)) }
                 }
             } label: {
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 32)
-                    .background(Color(.tertiarySystemFill), in: .circle)
+                CircularGlyphLabel(systemName: "chevron.up.chevron.down", diameter: 32)
             }
+            .tint(Color.secondary)
+            .padding(.trailing, -6)
+            .accessibilityLabel("展开或折叠全部分组")
         }
     }
 
@@ -249,23 +252,24 @@ struct WorkCardSheet: View {
         }
     }
 
+    /// 外链は系统の `.bordered` カプセル（regular・`.subheadline` で実測 32pt）。
+    /// 高さは手書きの padding ではなく `controlSize` に決めさせる。
     private var externalLinksRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(externalLinks, id: \.title) { link in
-                    Button {
+                    Button(link.title) {
                         safariItem = SafariItem(url: link.url)
-                    } label: {
-                        Text(link.title)
-                            .font(.subheadline)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(Color(.tertiarySystemFill), in: .capsule)
                     }
-                    .buttonStyle(.plain)
                 }
             }
+            .font(.subheadline)
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .controlSize(.regular)
+            .padding(.vertical, 1)
         }
+        .scrollClipDisabled()
     }
 
     /// 外链胶囊の並び。中国語圏の百科・Google 検索は非 ASCII を含むので必ずパーセントエンコードする。
@@ -279,18 +283,18 @@ struct WorkCardSheet: View {
         if !cnQuery.isEmpty {
             if let encoded = cnQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
                let url = URL(string: "https://zh.wikipedia.org/w/index.php?search=\(encoded)") {
-                links.append(("维基百科", url))
+                links.append((String(localized: "维基百科"), url))
             }
             if let encoded = cnQuery.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
                let url = URL(string: "https://zh.moegirl.org.cn/\(encoded)") {
-                links.append(("萌娘百科", url))
+                links.append((String(localized: "萌娘百科"), url))
             }
         }
 
         let googleQuery = (bangumi.title?.nilIfBlank ?? bangumi.cn?.nilIfBlank ?? bangumi.displayName) + " 聖地巡礼"
         if let encoded = googleQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
            let url = URL(string: "https://www.google.com/search?q=\(encoded)") {
-            links.append(("Google 圣地巡礼", url))
+            links.append((String(localized: "Google 圣地巡礼"), url))
         }
 
         return links
@@ -300,29 +304,12 @@ struct WorkCardSheet: View {
     private func contributorText(_ summary: (top: [String], total: Int)) -> String {
         let names = summary.top.map { "@\($0)" }
         guard !names.isEmpty else {
-            return "由 \(summary.total) 位贡献者收集"
+            return String(localized: "由 \(summary.total) 位贡献者收集")
         }
+        let joined = names.joined(separator: "、")
         if summary.total <= 2 {
-            return "由 \(names.joined(separator: "、")) 收集"
+            return String(localized: "由 \(joined) 收集")
         }
-        return "由 \(names.joined(separator: "、")) 等 \(summary.total) 位贡献者收集"
-    }
-}
-
-/// 作品カード・地標カード共通の閉じる釦（28pt の灰丸）。`PointCardSheet.swift` からも参照される
-/// ため（阶段 3 で先に生えた依存）、このファイルに置いたまま動かさない。
-struct CardCloseButton: View {
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "xmark")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(.secondary)
-                .frame(width: 28, height: 28)
-                .background(Color(.tertiarySystemFill), in: .circle)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("关闭")
+        return String(localized: "由 \(joined) 等 \(summary.total) 位贡献者收集")
     }
 }

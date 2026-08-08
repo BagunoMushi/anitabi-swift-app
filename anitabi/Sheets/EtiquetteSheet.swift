@@ -21,7 +21,7 @@ struct EtiquetteSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Label {
                 Text("注意巡礼礼仪")
-                    .font(.title3.bold())
+                    .font(.title3.weight(.semibold))
                     .foregroundStyle(.primary)
             } icon: {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -35,23 +35,28 @@ struct EtiquetteSheet: View {
 
             Spacer(minLength: 0)
 
-            VStack(spacing: 12) {
+            // 高さは `controlSize(.large)`（実測 50pt）に決めさせる —— frame(height:) は書かない。
+            // 幅だけ全幅に伸ばす。prominent は 1 画面 1 枚まで（「知道了」だけ）。
+            VStack(spacing: 10) {
                 Button {
                     safariItem = SafariItem(url: AnitabiWebLink.etiquetteIssue)
                 } label: {
-                    Text("了解更多").frame(maxWidth: .infinity, minHeight: 28)
+                    Text("了解更多").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
 
                 Button {
                     dismiss()
                 } label: {
-                    Text("知道了").frame(maxWidth: .infinity, minHeight: 28)
+                    Text("知道了").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
             }
+            .controlSize(.large)
+            .buttonBorderShape(.capsule)
         }
-        .padding(20)
+        .padding(.horizontal, SheetMetrics.horizontalPadding)
+        .padding(.vertical, 20)
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
         .sheet(item: $safariItem) { item in SafariSheet(url: item.url) }

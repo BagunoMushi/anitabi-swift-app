@@ -61,7 +61,7 @@ struct PointCardSheet: View {
     var body: some View {
         ScrollView {
             if let point {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
                     titleRow(point)
                     subtitleRow(point)
                     if point.needsEtiquetteWarning {
@@ -80,9 +80,9 @@ struct PointCardSheet: View {
                     }
                     sourceRow(point)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, SheetMetrics.horizontalPadding)
                 // 最小档 96pt がちょうど見出し行だけ見える高さ。この上余白込みの数値。
-                .padding(.top, 20)
+                .padding(.top, SheetMetrics.topInset)
                 .padding(.bottom, 24)
             }
         }
@@ -105,13 +105,16 @@ struct PointCardSheet: View {
     // MARK: - 1. 見出し行
 
     private func titleRow(_ point: ScenePoint) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(point.displayName.nilIfBlank ?? "巡礼点")
-                .font(.title2.bold())
+        HStack(alignment: .top, spacing: 0) {
+            Text(point.displayName.nilIfBlank ?? String(localized: "巡礼点"))
+                .font(.title2.weight(.bold))
                 .lineLimit(2)
             Spacer(minLength: 8)
+            // 丸釦 2 つは当たり判定 44pt ぶん外へ膨らんでいる。間隔 0 で見た目 14pt、
+            // 右端は −7 で 15pt の内容余白に戻す。
             moreMenu(point)
             CardCloseButton(action: onClose)
+                .padding(.trailing, -7)
         }
     }
 
@@ -130,6 +133,8 @@ struct PointCardSheet: View {
         }
     }
 
+    /// 行内の小さな釦は系统の `.bordered` ＋ `.controlSize(.small)` カプセル（実測 28pt）。
+    /// 余白を手書きせず `controlSize` に高さを決めさせる。
     private var workChip: some View {
         Button {
             onSelectWork(selection.bangumiID)
@@ -137,14 +142,14 @@ struct PointCardSheet: View {
             HStack(spacing: 6) {
                 workChipIcon
                 Text(store.name(forBangumi: selection.bangumiID))
-                    .font(.subheadline)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Color(.tertiarySystemFill), in: .capsule)
         }
-        .buttonStyle(.plain)
+        .font(.subheadline)
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
+        .tint(.secondary)
     }
 
     /// 16pt の丸いカバー。無い作品はテーマ色グラデーションのまま（文字は置かない——硬約束）。
@@ -188,17 +193,13 @@ struct PointCardSheet: View {
         Button {
             isShowingEtiquette = true
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                Text("注意巡礼礼仪")
-            }
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(.orange)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(Color.orange.opacity(0.15), in: .capsule)
+            Label("注意巡礼礼仪", systemImage: "exclamationmark.triangle.fill")
         }
-        .buttonStyle(.plain)
+        .font(.subheadline)
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
+        .tint(.orange)
     }
 
     // MARK: - 4. 剧照カード
@@ -266,83 +267,59 @@ struct PointCardSheet: View {
     private func missingScreenshotCard(_ point: ScenePoint) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "photo.badge.plus")
-                .font(.system(size: 40))
+                .font(.largeTitle)
                 .foregroundStyle(.secondary)
             Text("这个点还没有截图")
-                .font(.body)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
             Button("补传截图") {
                 safariItem = SafariItem(url: AnitabiWebLink.createPoint(point: point, bangumi: bangumi))
             }
+            .font(.subheadline)
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.capsule)
             .controlSize(.regular)
         }
-        .frame(maxWidth: .infinity, minHeight: 180)
-        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
         .background(Color(.tertiarySystemFill), in: ConcentricRectangle(corners: .concentric(minimum: 16)))
     }
 
     // MARK: - 5. 動作排
 
-    /// Apple マップの地点カードと同じ**横並びの小さなカプセル**。等幅に引き伸ばさず、
-    /// 内容ぶんの幅で並べて、入り切らなければ行ごと横スクロールする
-    /// （大きな色面は Apple の地点カードには存在しない）。
+    /// Apple マップの地点カードと同じ動作排 —— 行幅を等分した角丸タイル、総高 51pt
+    /// （icon 上・`.footnote` 13pt ラベル下）。剧照がある点は 4 枚で 1 枚 ≈83pt、
+    /// 無い点は 3 枚で等分される。主（做对比图）だけ tint 填充で、残りは `.tertiarySystemFill`。
     private func actionRow(_ point: ScenePoint) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                if let photoURL = originalImageURL {
-                    Button {
-                        startComparison(point, photoURL: photoURL)
-                    } label: {
-                        actionPill("camera.viewfinder", "做对比图", prominent: true)
-                    }
-                    .buttonStyle(.plain)
-                }
-
+        HStack(spacing: 8) {
+            if let photoURL = originalImageURL {
                 Button {
-                    open(AnitabiWebLink.googleMaps(lat: point.lat, lng: point.lng))
+                    startComparison(point, photoURL: photoURL)
                 } label: {
-                    actionPill("map", "Google 地图")
+                    ActionTileLabel(systemImage: "camera.viewfinder", title: "做对比图")
                 }
-                .buttonStyle(.plain)
-
-                Button {
-                    open(AnitabiWebLink.streetView(lat: point.lat, lng: point.lng))
-                } label: {
-                    actionPill("binoculars", "街景")
-                }
-                .buttonStyle(.plain)
-
-                ShareLink(item: shareURL(point), subject: Text(shareTitle(point)), message: Text(shareTitle(point))) {
-                    actionPill("square.and.arrow.up", "分享")
-                }
-                .buttonStyle(.plain)
+                .buttonStyle(ActionTileButtonStyle(prominent: true))
             }
-            // カプセルの左右が sheet の端で切れないように、スクロール内容側に余白を持たせる
-            // （行そのものは全幅でスクロールする）。
-            .padding(.horizontal, 16)
-        }
-        .scrollClipDisabled()
-        .padding(.horizontal, -16)
-    }
 
-    /// 見た目 38pt・当たり判定 44pt のカプセル。数値の内訳を変えるときは両方まとめて。
-    private func actionPill(_ systemImage: String, _ title: String, prominent: Bool = false) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(.subheadline.weight(.semibold))
-            Text(title)
-                .lineLimit(1)
+            Button {
+                open(AnitabiWebLink.googleMaps(lat: point.lat, lng: point.lng))
+            } label: {
+                ActionTileLabel(systemImage: "map", title: "Google 地图")
+            }
+            .buttonStyle(ActionTileButtonStyle())
+
+            Button {
+                open(AnitabiWebLink.streetView(lat: point.lat, lng: point.lng))
+            } label: {
+                ActionTileLabel(systemImage: "binoculars", title: "街景")
+            }
+            .buttonStyle(ActionTileButtonStyle())
+
+            ShareLink(item: shareURL(point), subject: Text(shareTitle(point)), message: Text(shareTitle(point))) {
+                ActionTileLabel(systemImage: "square.and.arrow.up", title: "分享")
+            }
+            .buttonStyle(ActionTileButtonStyle())
         }
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-        .padding(.horizontal, 14)
-        .frame(height: 38)
-        .background(prominent ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color(.tertiarySystemFill)), in: .capsule)
-        // 見た目は 38pt のまま、指の当たりだけ 44pt へ広げる（HIG の最小タップ領域）。
-        .padding(.vertical, 3)
-        .contentShape(.rect)
     }
 
     /// 対比撮影へ渡す 4 つ。`location` は成片の右下に等幅で焼き込まれる文字列。
@@ -364,7 +341,8 @@ struct PointCardSheet: View {
     }
 
     private func shareTitle(_ point: ScenePoint) -> String {
-        "\(point.displayName.nilIfBlank ?? "巡礼点")｜《\(store.name(forBangumi: point.bangumiID))》的巡礼点"
+        let name = point.displayName.nilIfBlank ?? String(localized: "巡礼点")
+        return String(localized: "\(name)｜《\(store.name(forBangumi: point.bangumiID))》的巡礼点")
     }
 
     // MARK: - 7. 出典行
@@ -403,13 +381,13 @@ struct PointCardSheet: View {
         let link = point.originLink?.nilIfBlank.flatMap { URL(string: $0) } ?? midURL
 
         if let origin = point.origin?.nilIfBlank {
-            return ("来源：\(origin)", link)
+            return (String(localized: "来源：\(origin)"), link)
         }
         if let uid = point.uid, let nickname = store.userNickname(uid)?.nilIfBlank {
-            return ("由 @\(nickname) 贡献", nil)
+            return (String(localized: "由 @\(nickname) 贡献"), nil)
         }
         if midURL != nil {
-            return ("来源：地图导入", midURL)
+            return (String(localized: "来源：地图导入"), midURL)
         }
         return nil
     }
@@ -433,16 +411,13 @@ struct PointCardSheet: View {
             }
             Button("拷贝坐标", systemImage: "doc.on.doc") {
                 UIPasteboard.general.string = String(format: "%.6f,%.6f", point.lat, point.lng)
-                // Toast は阶段 7 で入るので、今は触覚だけで応答する。
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                router.toast.show(String(localized: "已拷贝坐标"), symbol: "doc.on.doc")
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.secondary)
-                .frame(width: 28, height: 28)
-                .background(Color(.tertiarySystemFill), in: .circle)
+            CircularGlyphLabel(systemName: "ellipsis")
         }
+        // Menu は既定で中身を tint 色に塗るので、灰の記号に戻す（✕ 釦と揃える）。
+        .tint(Color.secondary)
         .accessibilityLabel("更多")
     }
 

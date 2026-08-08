@@ -19,6 +19,7 @@
 //  | `selectedPointID` | 選択中の地標。選択状態は**外部が持つ**。地図は気球に morph するだけ |
 //  | `isPhotoLayerVisible` | 劇照サムネイル標のレイヤー切り替え |
 //  | `baseStyle` | `.standard` / `.hybrid`（衛星） |
+//  | `droppedPinCoordinate` | 長押しで落とした針（阶段 7）。`nil` で撤去 |
 //
 //  ## 出力（全てクロージャ）
 //  - `onSelectPoint(ScenePoint)` — 地標をタップ
@@ -28,6 +29,8 @@
 //  - `onLongPress(CLLocationCoordinate2D)` — 長押し（落針）
 //  - `onCameraIdle(MapCameraState)` — カメラが 120ms 静止した（chips 更新・状態復元用）
 //  - `onAnnotationsChange(点数, 作品標数)` — 在図標注数。HUD・デバッグ用の任意口
+//  - `onMapViewReady(MKMapView)` — 生の `MKMapView` を 1 回だけ手渡す（阶段 7・
+//    `MKCompassButton`/`MKScaleView` が `init(mapView:)` で同じインスタンスを要求するため）
 //
 //  ## 使用例
 //  ```swift
@@ -47,7 +50,9 @@ import UIKit
 
 // MARK: - 公開型
 
-enum MapBaseStyle: Equatable {
+/// `String` raw value を持たせているのは `@AppStorage` に直接載せるため（阶段 7・浮控の地図钮）。
+/// 既存の switch 網羅性・Equatable 比較には影響しない、純粋な追加適合。
+enum MapBaseStyle: String, Equatable {
     case standard
     /// 衛星（ラベル付き）。
     case hybrid
@@ -121,6 +126,9 @@ struct MapCanvas: UIViewRepresentable {
     var selectedPointID: String?
     var isPhotoLayerVisible = true
     var baseStyle: MapBaseStyle = .standard
+    /// 長押しで落とした針（阶段 7）。`nil` なら地図上に何も置かない。系统の赤いマーカーで表示し、
+    /// `nil` に戻れば（呼び出し側が `AppRouter.droppedPin` を消せば）そのまま撤去される。
+    var droppedPinCoordinate: CLLocationCoordinate2D?
     /// 初期表示。復元値や deep link があれば呼び出し側が入れる。
     var initialRegion = MapCanvas.japanOverview
 
@@ -135,6 +143,10 @@ struct MapCanvas: UIViewRepresentable {
     /// SwiftUI の `simultaneousGesture` は MKMapView 内部の認識器に食われて発火しないことがあるので、
     /// 観測専用の認識器を自前で足して確実に拾う。
     var onUserInteractionBegan: (() -> Void)?
+    /// `MKMapView` の生参照が要るのはここの外（`MKCompassButton`/`MKScaleView` は
+    /// `init(mapView:)` を取るので、浮控側が同じインスタンスを渡す必要がある）。
+    /// 後方互換のため既定 `nil` —— 阶段 6 以前の呼び出し元は何も変える必要が無い。
+    var onMapViewReady: ((MKMapView) -> Void)?
 
     static let japanOverview = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 36.5, longitude: 138.5),
@@ -163,12 +175,20 @@ struct MapCanvas: UIViewRepresentable {
             WorkMarkerView.self,
             forAnnotationViewWithReuseIdentifier: WorkMarkerView.reuseIdentifier
         )
+        mapView.register(
+            MKMarkerAnnotationView.self,
+            forAnnotationViewWithReuseIdentifier: Coordinator.droppedPinReuseIdentifier
+        )
         // 既定では safe area ぶんが layoutMargins に入り、setVisibleMapRect がそのぶん引いた画を出す
         // （要求ズームより約 0.17 浅くなる）。余白は呼び出し側が edgePadding で明示する方針なので殺す。
         mapView.insetsLayoutMarginsFromSafeArea = false
         mapView.layoutMargins = .zero
         mapView.setRegion(initialRegion, animated: false)
         context.coordinator.attach(to: mapView, style: baseStyle)
+        // SwiftUI の状態更新はここでは行わない（呼び出し側が `DispatchQueue.main.async` などで
+        // 1 拍遅らせる約束——`makeUIView` の最中に `@State` を書き換えると
+        // 「ビュー更新中に状態を変更した」実行時警告になる）。
+        onMapViewReady?(mapView)
         return mapView
     }
 
@@ -179,6 +199,17 @@ struct MapCanvas: UIViewRepresentable {
     static func dismantleUIView(_ mapView: MKMapView, coordinator: Coordinator) {
         coordinator.detach()
         mapView.delegate = nil
+    }
+}
+
+/// `CLLocationCoordinate2D` は `Equatable` を持たない。落針の座標が変わったかどうかだけを
+/// 見たいので、誤差吸収込みの簡易比較をここに置く。
+private func coordinatesEqual(_ lhs: CLLocationCoordinate2D?, _ rhs: CLLocationCoordinate2D?) -> Bool {
+    switch (lhs, rhs) {
+    case (nil, nil): return true
+    case let (l?, r?):
+        return abs(l.latitude - r.latitude) < 1e-9 && abs(l.longitude - r.longitude) < 1e-9
+    default: return false
     }
 }
 
@@ -212,6 +243,10 @@ extension MapCanvas {
 
         private var regionOverlay: WorkRegionOverlay?
         private var overlayWorkID: Int?
+
+        static let droppedPinReuseIdentifier = "droppedPin"
+        private var droppedPinAnnotation: MKPointAnnotation?
+        private var droppedPinCoordinate: CLLocationCoordinate2D?
 
         init(_ parent: MapCanvas) {
             self.parent = parent
@@ -305,6 +340,11 @@ extension MapCanvas {
                 needsUpdate = true
             }
             if needsUpdate { scheduleUpdate(immediate: true) }
+
+            if !coordinatesEqual(droppedPinCoordinate, parent.droppedPinCoordinate) {
+                droppedPinCoordinate = parent.droppedPinCoordinate
+                applyDroppedPin(droppedPinCoordinate, on: mapView)
+            }
 
             if let command = parent.command, command.id != lastCommandID {
                 lastCommandID = command.id
@@ -600,9 +640,26 @@ extension MapCanvas {
                 overlayWorkID = nil
                 return
             }
+            overlay.themeColor = colorByWork[focusedWorkID] ?? .anitabiNeutralTheme
             regionOverlay = overlay
             overlayWorkID = focusedWorkID
             mapView.addOverlay(overlay, level: .aboveRoads)
+        }
+
+        // MARK: 落針（長押し）
+
+        /// `nil` → 撤去、値あり → 無ければ追加・位置が変われば作り直す（`MKPointAnnotation` は
+        /// 座標を直接書き換えられるが、削除→追加のほうが `animatesWhenAdded` の落下演出を毎回拾える）。
+        private func applyDroppedPin(_ coordinate: CLLocationCoordinate2D?, on mapView: MKMapView) {
+            if let existing = droppedPinAnnotation {
+                mapView.removeAnnotation(existing)
+                droppedPinAnnotation = nil
+            }
+            guard let coordinate else { return }
+            let annotation = MKPointAnnotation()
+            annotation.coordinate = coordinate
+            droppedPinAnnotation = annotation
+            mapView.addAnnotation(annotation)
         }
 
         private func refreshWorkIcons() {
@@ -630,6 +687,16 @@ extension MapCanvas {
                 view?.configure(with: work)
                 return view
 
+            case let pin as MKPointAnnotation where pin === droppedPinAnnotation:
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: Coordinator.droppedPinReuseIdentifier, for: pin
+                ) as? MKMarkerAnnotationView
+                view?.markerTintColor = .systemRed
+                view?.canShowCallout = false
+                // 系统の落下演出（`animatesWhenAdded`）に任せる——自前でスケール／不透明度は組まない。
+                view?.animatesWhenAdded = true
+                return view
+
             default:
                 return nil  // ユーザー位置は MapKit の既定表示に任せる。
             }
@@ -637,7 +704,11 @@ extension MapCanvas {
 
         func mapView(_ mapView: MKMapView, didAdd views: [MKAnnotationView]) {
             for view in views {
-                guard !(view.annotation is MKUserLocation) else { continue }
+                // ユーザー位置と落針は自前のフェード＋スケールを掛けない——落針は
+                // `animatesWhenAdded`（系统の落下演出）だけに任せる（二重演出になるのを防ぐ）。
+                guard !(view.annotation is MKUserLocation),
+                      !(view.annotation is MKPointAnnotation)
+                else { continue }
                 view.alpha = 0
                 view.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
                 // 一斉に湧くと「点が降ってきた」ように見えるので、80ms 以内でばらけさせる。
@@ -678,8 +749,10 @@ extension MapCanvas {
             guard let region = overlay as? WorkRegionOverlay else {
                 return MKOverlayRenderer(overlay: overlay)
             }
+            // Web 版と同じ：暗幕＝テーマ色 50%、縁取り＝テーマ色の太い帯（地面幅一定）。
             let renderer = WorkRegionRenderer(overlay: region)
-            renderer.fillColor = WorkRegionRenderer.fillColor(for: mapView.traitCollection)
+            renderer.fillColor = region.themeColor.withAlphaComponent(0.5)
+            renderer.strokeColor = region.themeColor
             return renderer
         }
 

@@ -90,6 +90,15 @@ final class AppRouter {
     /// 地図が最後に静止した位置。視口 chips の集計と状態復元（阶段 8）が読む。
     var cameraState: MapCameraState?
 
+    /// 画面上部の一時通知（阶段 7）。router 経由にしておけば、`@Bindable var router` を
+    /// 既に持っている全カード（PointCardSheet 等）から素通しで呼べる。
+    let toast = ToastCenter()
+
+    /// HomeSheet の「⋯」メニュー「重看欢迎页」から立てるフラグ（阶段 8）。`RootView` が
+    /// `.onChange` で拾って `fullScreenCover` を開き、自分で `false` に戻す
+    /// （`hasCompletedOnboarding` は変えない——既読状態はそのまま、単なる「もう一度見る」）。
+    var wantsWelcomeReplay = false
+
     // MARK: 地図への投影
 
     var focusedWorkID: Int? { workCard?.id }
@@ -168,8 +177,12 @@ final class AppRouter {
         selectedWorkIDs = []
     }
 
-    /// 長押しで針を落とす（阶段 7 で sheet が付く）。
+    /// 長押しで針を落とす。地標／作品カードとは排他 —— 同時に非 nil だと `HomeSheet` 側の
+    /// `.sheet(item:)` が 2 つ同時に値を持つことになり呈现が不定になるため、先に畳んでおく
+    /// （地図の見える部分への長押しは「今のカードから離れて新しい場所を見る」操作でもある）。
     func dropPin(at coordinate: CLLocationCoordinate2D) {
+        pointCard = nil
+        workCard = nil
         droppedPin = DroppedPin(coordinate: coordinate)
     }
 }

@@ -25,12 +25,18 @@ struct HomeBrowseView: View {
     let store: AnitabiStore
     let router: AppRouter
     let locationProvider: LocationProvider
+    let cameraState: MapCameraState?
     @Binding var homeDetent: PresentationDetent
     var onSelectPoint: (ScenePoint) -> Void
     var onFocusCity: (CityTile) -> Void
 
     @AppStorage("home.browseTab") private var browseTab: WorkBrowseTab = .recentlyUpdated
     @State private var isRandomCoolingDown = false
+    /// 視口内作品 chips（阶段 7）の集計結果。デバウンス付きで `store.worksInViewport` を叩く
+    /// タスクは**ここ**（`LazyVStack` の外）に置く —— 中身が空（＝高さ 0）の間 `.task` が
+    /// レイジーコンテナ内で生かされ続ける保証が無く、実測で一度も発火しないことを確認したため。
+    @State private var viewportWorkChips: [(id: Int, count: Int)] = []
+    private static let viewportChipsDebounce = Duration.milliseconds(300)
 
     private enum Anchor: Hashable { case cities }
 
@@ -42,9 +48,9 @@ struct HomeBrowseView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 24) {
-                    // 阶段 7: ViewportWorkChips（視口内複数作品フィルタの横滑り chips）は
-                    // 検索行のすぐ下＝ここに入る。
+                LazyVStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
+                    // 検索行のすぐ下＝横滑り chips 行。`viewportWorkChips` が空の間は高さ 0 に畳まれる。
+                    ViewportWorkChips(store: store, router: router, candidates: viewportWorkChips)
                     nearbySection
                     continueWatchingCard
                     quickActionsRow(proxy: proxy)
@@ -56,8 +62,8 @@ struct HomeBrowseView: View {
                     recentVisitsRow
                     footer
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.horizontal, SheetMetrics.horizontalPadding)
+                // 上の余白は検索行が持っているので、ここでは足さない。
                 .padding(.bottom, 32)
             }
         }
@@ -74,6 +80,24 @@ struct HomeBrowseView: View {
             await store.recomputeNearby(around: location)
             locationProvider.markNearbyRecomputed(at: location)
         }
+        .task(id: cameraState) { await refreshViewportWorkChips() }
+    }
+
+    // MARK: - 視口作品 chips の集計
+
+    private func refreshViewportWorkChips() async {
+        guard let cameraState, cameraState.zoom >= ViewportWorkChips.minZoom else {
+            if !viewportWorkChips.isEmpty {
+                withAnimation(.anitabiSpring) { viewportWorkChips = [] }
+            }
+            return
+        }
+        try? await Task.sleep(for: Self.viewportChipsDebounce)
+        guard !Task.isCancelled else { return }
+        let result = store.worksInViewport(region: cameraState.region)
+        guard !Task.isCancelled else { return }
+        let next = result.count >= ViewportWorkChips.minWorkCount ? Array(result.prefix(12)) : []
+        withAnimation(.anitabiSpring) { viewportWorkChips = next }
     }
 
     // MARK: 1. 附近的巡礼点
@@ -83,19 +107,19 @@ struct HomeBrowseView: View {
         if !locationProvider.isAuthorized {
             locationGuidanceCard
         } else if !nearbyWithinRange.isEmpty {
-            SheetGroupCard {
-                HStack {
-                    Text("附近的巡礼点").font(.headline)
-                    Spacer(minLength: 0)
-                    Button {
+            VStack(alignment: .leading, spacing: SheetMetrics.headerSpacing) {
+                SheetSectionHeader(title: "附近的巡礼点") {
+                    Button("更多") {
                         withAnimation(.anitabiSpring) { homeDetent = .large }
-                    } label: {
-                        Text("更多").font(.subheadline).foregroundStyle(.blue)
                     }
-                    .buttonStyle(.plain)
+                    .font(.subheadline)
                 }
-                VStack(spacing: 12) {
-                    ForEach(nearbyWithinRange) { item in
+                SheetListCard {
+                    ForEach(Array(nearbyWithinRange.enumerated()), id: \.element.id) { index, item in
+                        if index > 0 {
+                            // 分隔線は文字列まで寄せる（サムネイル 64 ＋ 間隔 12）。
+                            Divider().padding(.leading, 64 + SheetMetrics.thumbnailGap)
+                        }
                         Button { onSelectPoint(item.point) } label: {
                             NearbyPointRow(store: store, item: item)
                         }
@@ -109,6 +133,8 @@ struct HomeBrowseView: View {
                     .font(.body)
                 Button("带我去") { onSelectPoint(nearest.point) }
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
             }
         }
         // 定位済み・50km 圏内も 0 件のときは何も出さない（巡礼データが存在しない地域）。
@@ -124,6 +150,8 @@ struct HomeBrowseView: View {
             }
             Button("去开启", action: requestLocationOrOpenSettings)
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
         }
     }
 
@@ -143,12 +171,12 @@ struct HomeBrowseView: View {
         if let bangumi = store.lastVisitedBangumi {
             Button { router.focusWork(id: bangumi.id) } label: {
                 SheetGroupCard {
-                    HStack(spacing: 12) {
+                    HStack(spacing: SheetMetrics.thumbnailGap) {
                         CoverThumbnail(bangumi: bangumi).frame(width: 34, height: 46)
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: 3) {
                             Text("继续查看《\(bangumi.displayName)》").font(.body).lineLimit(1)
                             Text("\(pointCount(for: bangumi)) 个点位")
-                                .font(.footnote)
+                                .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
@@ -165,33 +193,49 @@ struct HomeBrowseView: View {
 
     // MARK: 3. 快捷排
 
+    /// Apple マップのフィルタ chips と同じ「`.bordered` regular カプセル（実測 32pt）」。
+    /// 高さは `controlSize` と字級だけで決める —— frame は書かない。
     private func quickActionsRow(proxy: ScrollViewProxy) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Button(action: rollRandomWork) {
                 Label("随机作品", systemImage: "dice")
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
             .disabled(isRandomCoolingDown)
 
             Button {
-                withAnimation(.anitabiSpring) {
-                    homeDetent = .large
-                    proxy.scrollTo(Anchor.cities, anchor: .top)
-                }
+                revealCities(proxy: proxy)
             } label: {
                 Label("热门城市", systemImage: "building.2")
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
 
             Spacer(minLength: 0)
+        }
+        .font(.subheadline)
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.regular)
+    }
+
+    /// 「热门城市」釦。档を上げるのと `scrollTo` を**同じ** `withAnimation` に入れると、
+    /// sheet の高さが変わっている最中の（＝まだ半开档の）寸法で目標位置が決まってしまい、
+    /// 全开档になった後の実際の位置とズレる。档の動き（`anitabiSpring` は response 0.35s）が
+    /// 落ち着いてから改めて巻き上げる。既に全开档なら待つ理由が無いのでそのまま巻き上げる。
+    private func revealCities(proxy: ScrollViewProxy) {
+        guard homeDetent != .large else {
+            withAnimation(.anitabiSpring) { proxy.scrollTo(Anchor.cities, anchor: .top) }
+            return
+        }
+        withAnimation(.anitabiSpring) { homeDetent = .large }
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            withAnimation(.anitabiSpring) { proxy.scrollTo(Anchor.cities, anchor: .top) }
         }
     }
 
     private func rollRandomWork() {
         guard !isRandomCoolingDown, let work = store.randomWork() else { return }
         router.focusWork(id: work.id)
+        router.toast.show(String(localized: "已跳转到《\(work.displayName)》"), symbol: "dice.fill")
         isRandomCoolingDown = true
         Task {
             try? await Task.sleep(for: .seconds(3))
@@ -205,16 +249,16 @@ struct HomeBrowseView: View {
     private var recentVisitsRow: some View {
         let recents = store.recentVisits.compactMap { store.bangumi(id: $0) }
         if !recents.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("最近查看").font(.headline)
+            VStack(alignment: .leading, spacing: SheetMetrics.headerSpacing) {
+                SheetSectionHeader("最近查看")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(recents) { bangumi in
                             Button { router.focusWork(id: bangumi.id) } label: {
-                                VStack(spacing: 4) {
+                                VStack(spacing: 6) {
                                     CoverThumbnail(bangumi: bangumi).frame(width: 60, height: 80)
                                     Text(bangumi.displayName)
-                                        .font(.caption)
+                                        .font(.footnote)
                                         .lineLimit(2)
                                         .multilineTextAlignment(.center)
                                         .frame(width: 60)
@@ -242,29 +286,43 @@ struct HomeBrowseView: View {
 
 // MARK: - 4. 热门城市（検索の空入力時にも使い回す）
 
+/// Apple マップの「周辺を検索」グリッドと同じ形（実測 83×83 のタイル＋その下に `.footnote` 2 行）。
+/// 4 列にすると 1 辺がちょうど 83pt 前後になる（内容幅 363 − 間隔 8×3 を 4 等分）。
+/// 剧照は敷かない（硬約束）——地は `.tertiarySystemFill` ＋ 記号だけ。
 struct CityGridSection: View {
     let cities: [CityTile]
     var onSelect: (CityTile) -> Void
 
-    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
 
     var body: some View {
         if !cities.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("热门城市").font(.headline)
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(cities.prefix(11)) { city in
+            VStack(alignment: .leading, spacing: SheetMetrics.headerSpacing) {
+                SheetSectionHeader("热门城市")
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+                    ForEach(cities.prefix(12)) { city in
                         Button { onSelect(city) } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(city.name).font(.body.weight(.semibold)).lineLimit(1)
-                                Text("\(city.pointCount) 个点位")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                            VStack(spacing: 6) {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color(.tertiarySystemFill))
+                                    .aspectRatio(1, contentMode: .fit)
+                                    .overlay {
+                                        Image(systemName: "building.2")
+                                            .font(.title2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                VStack(spacing: 1) {
+                                    Text(city.name)
+                                        .lineLimit(1)
+                                        .foregroundStyle(.primary)
+                                    Text("\(city.pointCount)")
+                                        .lineLimit(1)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .font(.footnote)
+                                .multilineTextAlignment(.center)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
-                            .frame(minHeight: 56, alignment: .topLeading)
-                            .background(Color(.tertiarySystemFill), in: ConcentricRectangle(corners: .concentric(minimum: 12)))
+                            .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
                     }
@@ -282,8 +340,8 @@ struct WorkBrowseSection: View {
     var onSelectWork: (Int) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("作品浏览").font(.headline)
+        VStack(alignment: .leading, spacing: SheetMetrics.headerSpacing) {
+            SheetSectionHeader("作品浏览")
             Picker("浏览分类", selection: $selectedTab) {
                 ForEach(WorkBrowseTab.allCases) { tab in
                     Text(tab.title).tag(tab)
@@ -293,20 +351,17 @@ struct WorkBrowseSection: View {
             .labelsHidden()
 
             let works = Array(store.works(for: selectedTab).prefix(18))
-            VStack(spacing: 0) {
+            SheetListCard {
                 ForEach(Array(works.enumerated()), id: \.element.id) { offset, bangumi in
+                    if offset > 0 {
+                        Divider().padding(.leading, 34 + SheetMetrics.thumbnailGap)
+                    }
                     Button { onSelectWork(bangumi.id) } label: {
                         BrowseWorkRow(store: store, bangumi: bangumi)
                     }
                     .buttonStyle(.plain)
-                    if offset < works.count - 1 {
-                        Divider().padding(.leading, 46)
-                    }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
-            .background(Color(.secondarySystemGroupedBackground), in: ConcentricRectangle(corners: .concentric(minimum: 16)))
         }
     }
 }
@@ -316,33 +371,36 @@ private struct BrowseWorkRow: View {
     let bangumi: BangumiLite
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: SheetMetrics.thumbnailGap) {
             CoverThumbnail(bangumi: bangumi).frame(width: 34, height: 46)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(bangumi.displayName).font(.body).lineLimit(2)
-                Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
         }
+        // 46pt のカバーが行高を決めるので、上下 12 で 70pt ＝ 実測 69pt 規格とほぼ同値。
         .padding(.vertical, 12)
         .contentShape(.rect)
     }
 
     private var subtitle: String {
         let count = store.pointsByBangumi[bangumi.id]?.count ?? bangumi.points.count
-        let parts: [String?] = [bangumi.cat?.nilIfBlank, bangumi.city?.nilIfBlank, "\(count) 个点位"]
+        let parts: [String?] = [bangumi.cat?.nilIfBlank, bangumi.city?.nilIfBlank, String(localized: "\(count) 个点位")]
         return parts.compactMap { $0 }.joined(separator: " · ")
     }
 }
 
 // MARK: - 附近行
 
-private struct NearbyPointRow: View {
+/// `DroppedPinSheet`（阶段 7）の「最近の巡礼点」行とも共有する——内部専用にしていた理由は
+/// 「まだ他所から使われていない」だけだったので `private` を外すだけで済む。
+struct NearbyPointRow: View {
     let store: AnitabiStore
     let item: NearbyPoint
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: SheetMetrics.thumbnailGap) {
             ZStack(alignment: .bottomTrailing) {
                 ThumbnailView(url: item.point.thumbnailURL).frame(width: 64, height: 36)
                 if let badge = item.point.episodeBadge {
@@ -355,8 +413,8 @@ private struct NearbyPointRow: View {
                         .padding(3)
                 }
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.point.displayName.nilIfBlank ?? "巡礼点")
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.point.displayName.nilIfBlank ?? String(localized: "巡礼点"))
                     .font(.body)
                     .lineLimit(1)
                 HStack(spacing: 4) {
@@ -365,11 +423,13 @@ private struct NearbyPointRow: View {
                     Text("·")
                     Text(DistanceFormatter.string(meters: item.distance))
                 }
-                .font(.footnote)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
+        // 17pt + 3 + 15pt ＝ 41.3 に上下 14 で行高 69pt（実測規格）。
+        .padding(.vertical, SheetMetrics.rowVerticalPadding)
         .contentShape(.rect)
     }
 }
@@ -385,7 +445,7 @@ struct SheetGroupCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             content
         }
-        .padding(12)
+        .padding(SheetMetrics.cardPadding)
         .background(Color(.secondarySystemGroupedBackground), in: ConcentricRectangle(corners: .concentric(minimum: 16)))
     }
 }

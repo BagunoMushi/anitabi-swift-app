@@ -40,11 +40,13 @@ enum AnitabiWebLink {
     /// 共有・「在网页版打开」に使う正規 URL。
     /// `c` は **lng が先**（Web 版の並びをそのまま踏襲）で小数 4 桁。
     /// 引数を省いたパラメータは URL に出さない。
+    /// `bids`（複数作品フィルタ。阶段 8 の深リンク／Handoff が使う）はカンマ区切りで付ける。
     static func canonical(
         bangumiID: Int? = nil,
         pointID: String? = nil,
         coordinate: CLLocationCoordinate2D? = nil,
-        zoom: Double? = nil
+        zoom: Double? = nil,
+        bids: [Int] = []
     ) -> URL {
         var items: [(String, String)] = []
         if let bangumiID { items.append(("bangumiId", String(bangumiID))) }
@@ -53,6 +55,7 @@ enum AnitabiWebLink {
             items.append(("c", String(format: "%.4f,%.4f", coordinate.longitude, coordinate.latitude)))
         }
         if let zoom { items.append(("z", trimmed(zoom))) }
+        if !bids.isEmpty { items.append(("bids", bids.map(String.init).joined(separator: ","))) }
         guard !items.isEmpty else { return fallback }
         return url("\(pageHost)/map", items)
     }
@@ -80,6 +83,16 @@ enum AnitabiWebLink {
             ("bangumiId", bangumi.map { String($0.id) } ?? String(point.bangumiID)),
             ("type", "edit")
         ])
+    }
+
+    /// 长按落针の「在此添加地标」。既存の `ScenePoint` を編集する `createPoint(point:bangumi:)` とは違い、
+    /// まだどの作品にも属さない**新規**地標なので `id`/`bangumiId`/`type=edit` を一切付けない
+    /// —— Web 版 create-point が許す最小合法負荷 `{"geo":[lat,lng]}` だけを渡す。
+    static func createPoint(at coordinate: CLLocationCoordinate2D) -> URL {
+        let payload: [String: Any] = ["geo": [coordinate.latitude, coordinate.longitude]]
+        let json = (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return url("\(pageHost)/create-point", [("data", json)])
     }
 
     /// 修正坐标。Web 版 `ms(bangumi, point)` の 15 パラメータをそのまま並べる
@@ -127,6 +140,9 @@ enum AnitabiWebLink {
 
     /// 巡礼マナーの共同ドキュメント（Web 版の ⚠️ アイコンと同じ飛び先）。
     static let etiquetteIssue = URL(string: "https://github.com/anitabi/anitabi.cn-document/issues/29")!
+
+    /// 「关于」シートの「巡礼数据反馈」。特定 issue ではなく一覧（新規 issue もここから起票できる）。
+    static let feedbackIssues = URL(string: "https://github.com/anitabi/anitabi.cn-document/issues")!
 
     // MARK: - 組み立て
 

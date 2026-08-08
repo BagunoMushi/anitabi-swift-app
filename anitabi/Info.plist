@@ -2,12 +2,20 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- App-Bound Domains: WKWebView で Service Worker を有効化するために必要。
-	     サイト自前の Workbox SW が全アセットをローカルにプリキャッシュし、起動が大幅に高速化する。
-	     登録ドメインはサブドメイン（www / image / img-tc 等）も自動的に含む。 -->
-	<key>WKAppBoundDomains</key>
+	<!-- カスタム URL scheme。Universal Link（AASA）は外部依存のため設定していないので、
+	     `anitabi://map?...` がどの環境でも効く保底の深リンク経路になる（阶段 8）。 -->
+	<key>CFBundleURLTypes</key>
 	<array>
-		<string>anitabi.cn</string>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.meikenn.anitabi</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>anitabi</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

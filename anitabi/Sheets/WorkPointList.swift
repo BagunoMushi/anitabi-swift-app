@@ -17,11 +17,14 @@ struct WorkPointList: View {
     let selectedPointID: String?
     var onSelectPoint: (ScenePoint) -> Void
 
+    /// サムネイル 64 ＋ 間隔 12。分隔線はここまで寄せる。
+    private static let textInset: CGFloat = 64 + SheetMetrics.thumbnailGap
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        SheetListCard {
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                 if index > 0 {
-                    Divider().padding(.leading, showsHeaders ? 0 : 76)
+                    Divider().padding(.leading, showsHeaders ? 0 : Self.textInset)
                 }
                 if showsHeaders {
                     groupHeader(group)
@@ -31,9 +34,6 @@ struct WorkPointList: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .background(Color(.secondarySystemGroupedBackground), in: ConcentricRectangle(corners: .concentric(minimum: 16)))
     }
 
     private func groupHeader(_ group: PointGroup) -> some View {
@@ -50,7 +50,7 @@ struct WorkPointList: View {
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
-                    .font(.caption.weight(.semibold))
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .rotationEffect(.degrees(collapsed ? -90 : 0))
             }
@@ -64,7 +64,7 @@ struct WorkPointList: View {
     private func pointRows(_ points: [ScenePoint]) -> some View {
         ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
             if index > 0 {
-                Divider().padding(.leading, 76)
+                Divider().padding(.leading, Self.textInset)
             }
             Button { onSelectPoint(point) } label: {
                 WorkPointRow(store: store, point: point, isSelected: point.id == selectedPointID)
@@ -81,26 +81,22 @@ struct WorkPointRow: View {
     let point: ScenePoint
     let isSelected: Bool
 
+    /// 主 17pt ＋ 副 15pt の 2 行きっかりに収める（実測規格の行高 69pt）。
+    /// 徽章と note は同じ 2 行目に並べる —— 3 行にすると Apple マップの地点行より縦に伸びてしまう。
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: SheetMetrics.thumbnailGap) {
             PointThumbnail(url: point.thumbnailURL, gradient: themeGradient)
                 .frame(width: 64, height: 36)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(point.displayName.nilIfBlank ?? "巡礼点")
+                Text(point.displayName.nilIfBlank ?? String(localized: "巡礼点"))
                     .font(.body)
                     .lineLimit(1)
-                badgeRow
-                if let subtitle = point.note?.nilIfBlank ?? point.folderName?.nilIfBlank {
-                    Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                subtitleRow
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, SheetMetrics.rowVerticalPadding)
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -109,6 +105,26 @@ struct WorkPointRow: View {
             }
         }
         .contentShape(.rect)
+    }
+
+    /// 徽章も note も無い点では 2 行目そのものを出さない（空行ぶんの余白を残すと
+    /// 文字がサムネイルに対して上に浮いて見える）。その場合は 64×36 のサムネイルが
+    /// 行高を決めて 64pt 行になる —— Apple マップの 1 行行と同じ帯。
+    @ViewBuilder
+    private var subtitleRow: some View {
+        let subtitle = point.note?.nilIfBlank ?? point.folderName?.nilIfBlank
+        let hasBadges = point.episodeBadge != nil || point.timecodeText != nil || point.needsEtiquetteWarning
+        if hasBadges || subtitle != nil {
+            HStack(spacing: 6) {
+                badgeRow
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
     }
 
     private var themeGradient: LinearGradient {
@@ -130,7 +146,7 @@ struct WorkPointRow: View {
                 if let ep { MetaBadge(text: ep) }
                 if let timecode { MetaBadge(text: timecode) }
                 if warns {
-                    MetaBadge(text: "注意礼仪", systemImage: "exclamationmark.triangle.fill", tint: .orange, prominent: true)
+                    MetaBadge(text: String(localized: "注意礼仪"), systemImage: "exclamationmark.triangle.fill", tint: .orange, prominent: true)
                 }
             }
         }
@@ -138,6 +154,7 @@ struct WorkPointRow: View {
 }
 
 /// 点行の徽章（EP・タイムコード・礼仪注意）に共通の小さなカプセル。
+/// 字は `.caption2` regular／medium まで —— heavy も px 直書きも使わない。
 private struct MetaBadge: View {
     let text: String
     var systemImage: String?
@@ -147,7 +164,7 @@ private struct MetaBadge: View {
     var body: some View {
         HStack(spacing: 2) {
             if let systemImage {
-                Image(systemName: systemImage).font(.system(size: 9, weight: .semibold))
+                Image(systemName: systemImage).imageScale(.small)
             }
             Text(text)
         }

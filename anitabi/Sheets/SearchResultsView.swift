@@ -30,7 +30,7 @@ struct SearchResultsView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
                 if trimmedQuery.isEmpty {
                     CityGridSection(cities: store.cities) { city in
                         onFocusCity(city)
@@ -44,8 +44,8 @@ struct SearchResultsView: View {
                     resultsContent
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.horizontal, SheetMetrics.horizontalPadding)
+            // 上の余白は検索行が持っているので、ここでは足さない。
             .padding(.bottom, 32)
         }
         .task(id: query) {
@@ -91,17 +91,23 @@ struct SearchResultsView: View {
             ContentUnavailableView.search(text: trimmedQuery)
                 .padding(.top, 40)
         } else {
-            VStack(spacing: 0) {
+            SheetListCard {
                 ForEach(Array(results.enumerated()), id: \.element.id) { offset, result in
-                    resultRow(result)
-                    if offset < results.count - 1 {
-                        Divider().padding(.leading, 46)
+                    if offset > 0 {
+                        // 分隔線は「その行」の文字列位置まで寄せる。行種によって図の幅が違うので都度計算する。
+                        Divider().padding(.leading, leadingInset(of: result))
                     }
+                    resultRow(result)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
-            .background(Color(.secondarySystemGroupedBackground), in: ConcentricRectangle(corners: .concentric(minimum: 16)))
+        }
+    }
+
+    /// 行頭の図の幅 ＋ 間隔。city / bangumi は 34pt のカバー枠、point は 64pt のサムネイル。
+    private func leadingInset(of row: HomeSearchRow) -> CGFloat {
+        switch row {
+        case .city, .bangumi: 34 + SheetMetrics.thumbnailGap
+        case .point: 64 + SheetMetrics.thumbnailGap
         }
     }
 
@@ -113,13 +119,13 @@ struct SearchResultsView: View {
                 onFocusCity(city)
                 onFinishSelection()
             } label: {
-                HStack(spacing: 12) {
+                HStack(spacing: SheetMetrics.thumbnailGap) {
                     Image(systemName: "building.2")
                         .foregroundStyle(.secondary)
                         .frame(width: 34, height: 46)
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(city.name).font(.body)
-                        Text("城市").font(.footnote).foregroundStyle(.secondary)
+                        Text("城市").font(.subheadline).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
                 }
@@ -133,14 +139,15 @@ struct SearchResultsView: View {
                 router.focusWork(id: bangumi.id)
                 onFinishSelection()
             } label: {
-                HStack(spacing: 12) {
+                HStack(spacing: SheetMetrics.thumbnailGap) {
                     CoverThumbnail(bangumi: bangumi).frame(width: 34, height: 46)
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(bangumi.displayName).font(.body).lineLimit(2)
-                        Text(workSubtitle(bangumi)).font(.footnote).foregroundStyle(.secondary)
+                        Text(workSubtitle(bangumi)).font(.subheadline).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
                 }
+                // 46pt のカバーが行高を決めるので上下 12（＝70pt）。実測規格 69pt とほぼ同値。
                 .padding(.vertical, 12)
                 .contentShape(.rect)
             }
@@ -151,10 +158,10 @@ struct SearchResultsView: View {
                 onSelectPoint(point)
                 onFinishSelection()
             } label: {
-                HStack(spacing: 12) {
+                HStack(spacing: SheetMetrics.thumbnailGap) {
                     ThumbnailView(url: point.thumbnailURL).frame(width: 64, height: 36)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(point.displayName.nilIfBlank ?? "巡礼点").font(.body).lineLimit(1)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(point.displayName.nilIfBlank ?? String(localized: "巡礼点")).font(.body).lineLimit(1)
                         HStack(spacing: 4) {
                             ThemeDot(color: store.color(forBangumi: point.bangumiID))
                             Text(store.name(forBangumi: point.bangumiID)).lineLimit(1)
@@ -163,12 +170,13 @@ struct SearchResultsView: View {
                                 Text(DistanceFormatter.string(meters: distance))
                             }
                         }
-                        .font(.footnote)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.vertical, 12)
+                // 17pt + 3 + 15pt に上下 14 ＝ 行高 69pt（実測規格）。
+                .padding(.vertical, SheetMetrics.rowVerticalPadding)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -177,7 +185,7 @@ struct SearchResultsView: View {
 
     private func workSubtitle(_ bangumi: BangumiLite) -> String {
         let count = store.pointsByBangumi[bangumi.id]?.count ?? bangumi.points.count
-        let parts: [String?] = ["\(count) 个点位", bangumi.city?.nilIfBlank]
+        let parts: [String?] = [String(localized: "\(count) 个点位"), bangumi.city?.nilIfBlank]
         return parts.compactMap { $0 }.joined(separator: " · ")
     }
 }

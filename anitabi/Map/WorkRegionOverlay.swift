@@ -16,16 +16,26 @@ final class WorkRegionOverlay: MKPolygon {
     /// 内環（膨らませた凸包）の座標。タップの内外判定に使う。
     var hull: [CLLocationCoordinate2D] = []
 
-    /// 点群から圧暗レイヤーを作る。作れない場合（点なし・180 度経線跨ぎ）は nil。
+    /// 作品のテーマ色。Web 版は暗幕（fill 0.5）も縁取り線もテーマ色で描く。
+    var themeColor: UIColor = .black
+
+    /// 点群から圧暗レイヤーを作る。作れない場合は nil。
+    ///
+    /// Web 版 `Yo()` の忠実な移植：
+    /// 1. **判定範囲ガード** —— 1 点でも lng 0–153 / lat 20–45 の外にある作品は領域を描かない
+    ///    （Web は空ポリゴンを流す。海外点を含む作品で巨大な枠が出るのを防ぐ仕様）。
+    /// 2. `turf.convex()` → `turf.buffer(1000m)` —— 凸包の**真バッファ**（各辺を法線方向へ
+    ///    平行移動し、頂点は円弧で継ぐ）。重心押し出しの近似ではない。
     static func make(for coordinates: [CLLocationCoordinate2D], bufferMeters: Double = 1_000) -> WorkRegionOverlay? {
         guard !coordinates.isEmpty else { return nil }
 
-        let lngs = coordinates.map(\.longitude)
-        guard let minLng = lngs.min(), let maxLng = lngs.max() else { return nil }
-        // データはほぼ日本国内なので、跨線ケースは正しく畳まず素直に諦める（防御だけ）。
-        guard maxLng - minLng < 180 else { return nil }
+        // Web の `l` フィルタと同値。
+        let outOfRange = coordinates.contains {
+            $0.longitude < 0 || $0.longitude > 153 || $0.latitude < 20 || $0.latitude > 45
+        }
+        guard !outOfRange else { return nil }
 
-        let hull = buffered(hull: convexHull(coordinates), of: coordinates, meters: bufferMeters)
+        let hull = bufferedHull(of: coordinates, meters: bufferMeters)
         guard hull.count >= 3 else { return nil }
 
         let interior = MKPolygon(coordinates: hull, count: hull.count)
@@ -48,12 +58,71 @@ final class WorkRegionOverlay: MKPolygon {
 
     // MARK: 幾何
 
-    /// Andrew's monotone chain。緯度経度平面のまま計算する（日本スケールでは歪みが問題にならない）。
-    private static func convexHull(_ input: [CLLocationCoordinate2D]) -> [CLLocationCoordinate2D] {
-        var unique = Set<Point>()
-        for coordinate in input {
-            unique.insert(Point(x: coordinate.longitude, y: coordinate.latitude))
+    /// 重心基準のローカルメートル平面（正距円筒近似）。日本スケールでは歪みが問題にならない。
+    private struct Meters { var x: Double; var y: Double }
+
+    /// `turf.convex` → `turf.buffer(d, meters)` 相当：凸包の各辺を外法線方向へ d 平行移動し、
+    /// 頂点は半径 d の円弧（約 12° 刻み）で継ぐ。Web 版と同じ丸角の領域になる。
+    private static func bufferedHull(of coordinates: [CLLocationCoordinate2D], meters d: Double) -> [CLLocationCoordinate2D] {
+        let cLat = coordinates.reduce(0) { $0 + $1.latitude } / Double(coordinates.count)
+        let cLng = coordinates.reduce(0) { $0 + $1.longitude } / Double(coordinates.count)
+        let mPerLat = 111_320.0
+        let mPerLng = 111_320.0 * max(cos(cLat * .pi / 180), 0.01)
+        func toMeters(_ c: CLLocationCoordinate2D) -> Meters {
+            Meters(x: (c.longitude - cLng) * mPerLng, y: (c.latitude - cLat) * mPerLat)
         }
+        func toCoordinate(_ p: Meters) -> CLLocationCoordinate2D {
+            CLLocationCoordinate2D(latitude: cLat + p.y / mPerLat, longitude: cLng + p.x / mPerLng)
+        }
+
+        let points = coordinates.map(toMeters)
+        let hull = convexHull(points)
+
+        // 1〜2 点・一直線：Web は点を散らして三角形化→バッファ ≒ ほぼ円。最遠点半径 + d の円にする。
+        guard hull.count >= 3 else {
+            let radius = points.reduce(0.0) { max($0, ($1.x * $1.x + $1.y * $1.y).squareRoot()) } + d
+            return (0..<36).map { step in
+                let angle = Double(step) / 36 * 2 * .pi
+                return toCoordinate(Meters(x: cos(angle) * radius, y: sin(angle) * radius))
+            }
+        }
+
+        var out: [Meters] = []
+        let n = hull.count
+        for i in 0..<n {
+            let p = hull[i]
+            let q = hull[(i + 1) % n]
+            let r = hull[(i + 2) % n]
+            let dx = q.x - p.x, dy = q.y - p.y
+            let len = (dx * dx + dy * dy).squareRoot()
+            guard len > 0.001 else { continue }
+            // CCW 凸包 → 外側は進行方向の右 = (dy, -dx)
+            let nx = dy / len, ny = -dx / len
+            out.append(Meters(x: p.x + nx * d, y: p.y + ny * d))
+            out.append(Meters(x: q.x + nx * d, y: q.y + ny * d))
+
+            let dx2 = r.x - q.x, dy2 = r.y - q.y
+            let len2 = (dx2 * dx2 + dy2 * dy2).squareRoot()
+            guard len2 > 0.001 else { continue }
+            let a1 = atan2(ny, nx)
+            var sweep = atan2(-dx2 / len2, dy2 / len2) - a1  // 次辺の外法線角 − 現辺の外法線角
+            while sweep < 0 { sweep += 2 * .pi }
+            guard sweep < .pi else { continue }  // 凸なら 180° 未満（数値ノイズ防御）
+            let steps = Int(sweep / (.pi / 15))
+            if steps > 0 {
+                for s in 1...steps {
+                    let angle = a1 + sweep * Double(s) / Double(steps + 1)
+                    out.append(Meters(x: q.x + cos(angle) * d, y: q.y + sin(angle) * d))
+                }
+            }
+        }
+        return out.map(toCoordinate)
+    }
+
+    /// Andrew's monotone chain（メートル平面、CCW で返す）。
+    private static func convexHull(_ input: [Meters]) -> [Meters] {
+        var unique = Set<Point>()
+        for p in input { unique.insert(Point(x: p.x, y: p.y)) }
         let points: [Point] = unique.sorted { lhs, rhs in
             if lhs.x != rhs.x { return lhs.x < rhs.x }
             return lhs.y < rhs.y
@@ -80,48 +149,7 @@ final class WorkRegionOverlay: MKPolygon {
         }
         lower.removeLast()
         upper.removeLast()
-        return (lower + upper).map { CLLocationCoordinate2D(latitude: $0.y, longitude: $0.x) }
-    }
-
-    /// 凸包を重心から外へ `meters` ぶん押し出す。頂点が 3 未満（1〜2 点・一直線）の作品は
-    /// 多角形にならないので、重心まわりの円に置き換える。
-    private static func buffered(
-        hull: [CLLocationCoordinate2D],
-        of all: [CLLocationCoordinate2D],
-        meters: Double
-    ) -> [CLLocationCoordinate2D] {
-        let centroid = CLLocationCoordinate2D(
-            latitude: all.reduce(0) { $0 + $1.latitude } / Double(all.count),
-            longitude: all.reduce(0) { $0 + $1.longitude } / Double(all.count)
-        )
-        let latPerMeter = 1 / 111_320.0
-        let lngPerMeter = 1 / (111_320.0 * max(cos(centroid.latitude * .pi / 180), 0.01))
-
-        guard hull.count >= 3 else {
-            let radius = all.reduce(meters) { current, coordinate in
-                let dy = (coordinate.latitude - centroid.latitude) / latPerMeter
-                let dx = (coordinate.longitude - centroid.longitude) / lngPerMeter
-                return max(current, (dx * dx + dy * dy).squareRoot() + meters)
-            }
-            return (0..<24).map { step in
-                let angle = Double(step) / 24 * 2 * .pi
-                return CLLocationCoordinate2D(
-                    latitude: centroid.latitude + sin(angle) * radius * latPerMeter,
-                    longitude: centroid.longitude + cos(angle) * radius * lngPerMeter
-                )
-            }
-        }
-
-        return hull.map { vertex in
-            let dy = (vertex.latitude - centroid.latitude) / latPerMeter
-            let dx = (vertex.longitude - centroid.longitude) / lngPerMeter
-            let length = (dx * dx + dy * dy).squareRoot()
-            guard length > 1 else { return vertex }
-            return CLLocationCoordinate2D(
-                latitude: vertex.latitude + dy / length * meters * latPerMeter,
-                longitude: vertex.longitude + dx / length * meters * lngPerMeter
-            )
-        }
+        return (lower + upper).map { Meters(x: $0.x, y: $0.y) }
     }
 
     private static func polygon(
@@ -153,14 +181,23 @@ final class WorkRegionOverlay: MKPolygon {
 // MARK: - 描画
 
 final class WorkRegionRenderer: MKPolygonRenderer {
-    /// 暗幕の濃さ。明るい地図では 6% で十分沈み、暗い地図では 12% ないと差が出ない。
-    static func fillColor(for traits: UITraitCollection) -> UIColor {
-        UIColor.black.withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.12 : 0.06)
-    }
+    /// Web 版の縁取り線幅は `2^(zoom-9)` px の階段 —— 換算すると**地面幅ほぼ一定（約 250m）**の
+    /// 太い帯である（z10:2px×124m/px ≒ z15:64px×3.9m/px ≒ 250m）。MKOverlayPathRenderer の
+    /// `lineWidth` はスクリーン固定幅なので使わず、描画コンテキスト（単位＝マップポイント）に
+    /// 直接地面幅を流し込んで同じ挙動を得る。
+    /// 250m（Web 換算値）は手機の画面では太すぎるとのフィードバックにより 100m へ。
+    /// z13 で約 6pt、z15 で約 26pt —— 見えるが主張しすぎない太さ。
+    private static let edgeGroundWidthMeters: Double = 100
 
-    override init(overlay: MKOverlay) {
-        super.init(overlay: overlay)
-        strokeColor = nil
-        lineWidth = 0
+    /// 近接ズームでの暴走防止：Web は z15 で 64px まで太るが、手機では画面を食いすぎるので
+    /// スクリーン上の最大幅を 14pt にクランプする。
+    private static let maxScreenWidthPoints: Double = 14
+
+    override func applyStrokeProperties(to context: CGContext, atZoomScale zoomScale: MKZoomScale) {
+        super.applyStrokeProperties(to: context, atZoomScale: zoomScale)
+        let ground = MKMapPointsPerMeterAtLatitude(overlay.coordinate.latitude) * Self.edgeGroundWidthMeters
+        let cap = Self.maxScreenWidthPoints / Double(zoomScale)  // pt → マップポイント換算
+        context.setLineWidth(CGFloat(min(ground, cap)))
+        context.setLineJoin(.round)
     }
 }
