@@ -98,12 +98,12 @@ struct PointGeo: Sendable {
 
 /// 地図に落ちる 1 点。g.json の座標に g0-g6 の詳細をマージしたもの。
 ///
-/// g0-g6 側の 1 地標は 15 要素の配列（`docs/anitabi-web-full-analysis.md` §3.2）：
+/// g0-g6 側の 1 地標は 15 要素の配列。**ドキュメント（web JS 解析）とは並びが違う** ——
+/// 実データ 5 万件の型統計で確定した本当の並びは
 /// ```
-/// [id, name, cn, isFolder, folder, mid, uid, image, fid, ep, s, mark, origin, originLink, density]
+/// [id, name, folderName, isFolder, mid, uid, image, fid, ep, timecodeS, note, origin, originLink, cn, density]
 /// ```
-/// 本アプリが使うのは `0:id 1:name 2:cn 3:isFolder 4:folderName 5:mid 6:uid 7:image
-/// 8:fid 9:ep 10:timecodeS 11:note(mark) 12:origin 13:originLink`。`14:density` は未使用。
+/// （`14:density` は未使用。詳細は AnitabiDataLoader.parsePointDetails のコメント参照。）
 struct ScenePoint: Identifiable, Sendable {
     let id: String
     let bangumiID: Int
@@ -169,6 +169,17 @@ struct ScenePoint: Identifiable, Sendable {
         return h > 0
             ? String(format: "%d:%02d:%02d", h, m, s)
             : String(format: "%d:%02d", m, s)
+    }
+
+    /// 巡礼マナー注意の対象か（学校・図書館など、部外者が立ち入ると迷惑になりやすい場所）。
+    /// web 版の判定用正規表現をそのまま移植（大小文字を区別しない）。`nameCN` を先に見て、
+    /// 無ければ `name` を見る——阶段 6 の礼仪 sheet もこのフィールドを読む。
+    var needsEtiquetteWarning: Bool {
+        guard let text = nameCN?.nilIfBlank ?? name?.nilIfBlank else { return false }
+        return text.range(
+            of: "学校|莵道高|school|图书馆|library|高中|小学|少年院|中学",
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
 }
 

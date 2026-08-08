@@ -299,6 +299,14 @@ final class AnitabiStore {
             }
     }
 
+    /// 都市名の一致（HomeSheet 検索用、阶段 4 で追加）。候補は最大 12 件しかないので上限は設けない。
+    /// `SearchResult` 本体に `.city` を足すと、既存（削除待ち）の `HomeSheetView` 側の
+    /// 網羅 switch が壊れるため、こちらは独立した便宜クエリにしてある。
+    func matchingCities(_ query: String) -> [CityTile] {
+        guard let needle = query.nilIfBlank?.lowercased() else { return [] }
+        return cities.filter { $0.name.lowercased().contains(needle) }
+    }
+
     private func distance(from location: CLLocation, to point: ScenePoint) -> CLLocationDistance {
         CLLocation(latitude: point.lat, longitude: point.lng).distance(from: location)
     }
@@ -553,6 +561,13 @@ final class AnitabiStore {
 
     func name(forBangumi id: Int) -> String {
         bangumiByID[id]?.displayName ?? ""
+    }
+
+    /// 作品の最終更新（g0-g6 セルの modified、ミリ秒エポック）。未取得の作品は nil。
+    /// WorkCardSheet の「更新于」表示用（阶段 5 で追加）。
+    func modified(forBangumi id: Int) -> Date? {
+        guard let millis = bangumiModified[id], millis > 0 else { return nil }
+        return Date(timeIntervalSince1970: millis / 1000)
     }
 
     // MARK: - 投稿者

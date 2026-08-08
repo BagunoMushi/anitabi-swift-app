@@ -131,6 +131,10 @@ struct MapCanvas: UIViewRepresentable {
     var onLongPress: (CLLocationCoordinate2D) -> Void = { _ in }
     var onCameraIdle: (MapCameraState) -> Void = { _ in }
     var onAnnotationsChange: (Int, Int) -> Void = { _, _ in }
+    /// ユーザーが地図を動かし始めた（パン／ピンチの began）。sheet を最小档へ落とす合図に使う。
+    /// SwiftUI の `simultaneousGesture` は MKMapView 内部の認識器に食われて発火しないことがあるので、
+    /// 観測専用の認識器を自前で足して確実に拾う。
+    var onUserInteractionBegan: (() -> Void)?
 
     static let japanOverview = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 36.5, longitude: 138.5),
@@ -235,6 +239,17 @@ extension MapCanvas {
             longPress.delegate = self
             longPress.minimumPressDuration = 0.45
             mapView.addGestureRecognizer(longPress)
+
+            // 観測専用。何も消費せず、MapKit 側の pan/pinch と同時に走る
+            // （`shouldRecognizeSimultaneouslyWith` が true なので相手の delegate 次第にならない）。
+            for observer in [
+                UIPanGestureRecognizer(target: self, action: #selector(handleUserInteraction)),
+                UIPinchGestureRecognizer(target: self, action: #selector(handleUserInteraction)),
+            ] as [UIGestureRecognizer] {
+                observer.delegate = self
+                observer.cancelsTouchesInView = false
+                mapView.addGestureRecognizer(observer)
+            }
 
             BangumiIconSprite.shared.onReady = { [weak self] in self?.refreshWorkIcons() }
             BangumiIconSprite.shared.prepare()
@@ -686,6 +701,11 @@ extension MapCanvas {
                 return
             }
             parent.onTapBlank()
+        }
+
+        @objc private func handleUserInteraction(_ recognizer: UIGestureRecognizer) {
+            guard recognizer.state == .began else { return }
+            parent.onUserInteractionBegan?()
         }
 
         @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {

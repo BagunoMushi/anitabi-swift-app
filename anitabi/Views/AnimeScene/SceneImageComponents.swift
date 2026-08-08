@@ -91,18 +91,6 @@ final class CameraPreviewUIView: UIView {
     }
 }
 
-// MARK: - 分享表单
-struct ShareSheet: UIViewControllerRepresentable {
-    var items: [Any]
-    
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        return controller
-    }
-    
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
-
 // MARK: - 图像处理工具
 
 extension UIImage {

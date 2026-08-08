@@ -33,7 +33,9 @@ struct ImageViewer: View {
     @Binding var isPresented: Bool
     @Environment(\.dismiss) private var dismiss
     let imageURL: URL?
-    
+    /// タイトル（地標名）。無指定なら従来どおり空のままインライン表示。
+    var title: String? = nil
+
     // MARK: - States
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
@@ -61,6 +63,7 @@ struct ImageViewer: View {
                     imageContent
                 }
             }
+            .navigationTitle(title ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 leadingToolbarItems
@@ -245,4 +248,16 @@ struct ImageViewer: View {
             }
         }
     }
-} 
+}
+
+// MARK: - URL だけで開く入口
+
+extension ImageViewer {
+    /// `.fullScreenCover(item:)` から直接開くための入口（阶段 6）。
+    /// 呈现の生殺与奪は呼び出し側の `item` バインディングが握るので、内側の `isPresented` は
+    /// 定数で潰しておく —— 閉じるのは `@Environment(\.dismiss)` の側だけになる。
+    /// 拡張に置くのは、既存のメンバーワイズ init（`ContentView` が使用中）を消さないため。
+    init(url: URL, title: String? = nil) {
+        self.init(isPresented: .constant(true), imageURL: url, title: title)
+    }
+}

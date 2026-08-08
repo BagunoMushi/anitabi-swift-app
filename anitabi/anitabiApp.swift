@@ -44,12 +44,10 @@ struct anitabiApp: App {
         if CommandLine.arguments.contains("-mapEngineHarness") {
             MapEngineHarness()
         } else {
-            MapHomeView()
+            RootView()
         }
         #else
-        // ネイティブ再構築版の首屏。旧 WebView 版に戻したいときは `ContentView()` に差し替える
-        // （ContentView.swift 以下の WebView 一式はそのまま残してある）。
-        MapHomeView()
+        RootView()
         #endif
     }
 }

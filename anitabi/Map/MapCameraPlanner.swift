@@ -96,41 +96,46 @@ enum MapCameraPlanner {
 
     // MARK: 作品フィット
 
-    /// 作品の点群が収まる矩形。飛び地 1 点で全国表示になるのを防ぐため分位数で外れ値を落とす。
-    /// - 上下 2% を捨てる
-    /// - それでも P95 が P80 の 3 倍を超えるなら、尾が長すぎるので P80 で切る
+    /// 作品の点群が収まる矩形。飛び地の離群点で「日本全体どころか太平洋まで」表示になるのを防ぐ。
+    ///
+    /// web 版 `fitBoundsByBangumi`（`4b970b29.js` の `Jo` 関数）の**逐字移植**。中央値からの
+    /// 距離を分位数（P95/P80 など）で比較する方式は、ここでは**採らない**——実測（ハイスクール・
+    /// フリート、bangumiId 144843、g.json 実データ）で機能しないことを確認済み：19 点中 9 点が
+    /// 太平洋上の航路点で、全体のほぼ半数を離群点が占めるため、P95 も P80 も「離群点側」に
+    /// 落ちてしまい、両者の比が閾値を超えない（＝異常検出そのものが働かない）。
+    ///
+    /// `Jo` は分位数ではなく**各点の「他の全点までの平均距離＝離心度」**を見る：
+    /// 1. 点 i の離心度 = Σ(i から他の全点までの距離) / (n-1)
+    /// 2. 閾値 = (離心度の最大値 + 平均値) / 2 × 0.8
+    /// 3. 離心度が閾値を超える点を切り捨てる
+    /// 4. 切り捨てた結果が 3 点未満なら間引き過ぎとみなし、元の点群をそのまま使う（web と同じ安全弁）
+    ///
+    /// 少数の孤立点となら「その点だけ平均距離が突出する」ので綺麗に落ちる。上記の実データでも
+    /// 検証済み：ハイスクール・フリート 19 点（本土 10 ＋洋上 9）→ 13 点まで絞れる（P95/P80 方式は
+    /// 1 点も落とせず全 19 点のまま）。響け！ユーフォニアム 582 点（本土 581 ＋飛び地 1）→
+    /// 離群点 1 点だけを正しく検出、本編クラスタは無傷。
     static func fitRect(for coordinates: [CLLocationCoordinate2D]) -> MKMapRect? {
         guard !coordinates.isEmpty else { return nil }
-        guard coordinates.count > 4 else { return boundingRect(coordinates) }
+        guard coordinates.count >= 4 else { return boundingRect(coordinates) }
 
-        let lats = coordinates.map(\.latitude).sorted()
-        let lngs = coordinates.map(\.longitude).sorted()
-        let center = CLLocationCoordinate2D(
-            latitude: lats[lats.count / 2],
-            longitude: lngs[lngs.count / 2]
-        )
-        let metersPerLng = 111_320.0 * max(cos(center.latitude * .pi / 180), 0.01)
-        let distances = coordinates
-            .map { coordinate -> Double in
-                let dy = (coordinate.latitude - center.latitude) * 111_320
-                let dx = (coordinate.longitude - center.longitude) * metersPerLng
-                return (dx * dx + dy * dy).squareRoot()
+        let locations = coordinates.map { CLLocation(latitude: $0.latitude, longitude: $0.longitude) }
+        let n = locations.count
+        var eccentricities = [Double](repeating: 0, count: n)
+        for i in 0..<n {
+            var total = 0.0
+            for j in 0..<n where j != i {
+                total += locations[i].distance(from: locations[j])
             }
-            .sorted()
-
-        func percentile(_ q: Double) -> Double {
-            distances[min(max(Int(Double(distances.count - 1) * q), 0), distances.count - 1)]
+            eccentricities[i] = total / Double(n - 1)
         }
-        let p80 = percentile(0.80)
-        let p95 = percentile(0.95)
-        let limit = p95 > p80 * 3 ? p80 : percentile(0.98)
+        let maxEccentricity = eccentricities.max() ?? 0
+        let meanEccentricity = eccentricities.reduce(0, +) / Double(n)
+        let cutoff = (maxEccentricity + meanEccentricity) / 2 * 0.8
 
-        let kept = coordinates.filter { coordinate in
-            let dy = (coordinate.latitude - center.latitude) * 111_320
-            let dx = (coordinate.longitude - center.longitude) * metersPerLng
-            return (dx * dx + dy * dy).squareRoot() <= limit + 1
-        }
-        return boundingRect(kept.isEmpty ? coordinates : kept)
+        let kept = coordinates.indices
+            .filter { eccentricities[$0] <= cutoff }
+            .map { coordinates[$0] }
+        return boundingRect(kept.count >= 3 ? kept : coordinates)
     }
 
     private static func boundingRect(_ coordinates: [CLLocationCoordinate2D]) -> MKMapRect? {
