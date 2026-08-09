@@ -1,6 +1,9 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
+    "" : {
+
+    },
     "·" : {
       "comment" : "Bullet separator between short fragments",
       "extractionState" : "manual",
@@ -33,6 +36,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」の巡礼マップ"
+          }
+        }
+      }
+    },
+    "%@ · %lld 个点位" : {
+      "comment" : "Recently viewed work; %1 is the title, %2 is its spot count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$lld spots"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$lld か所"
           }
         }
       }
@@ -135,6 +156,24 @@
         }
       }
     },
+    "%lld 点位" : {
+      "comment" : "Spot count on a compact city tile",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld spots"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld か所"
+          }
+        }
+      }
+    },
     "© %@" : {
       "comment" : "Copyright line; %@ is the original title",
       "extractionState" : "manual",
@@ -149,6 +188,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "© %@"
+          }
+        }
+      }
+    },
+    "5km 内" : {
+      "comment" : "Radius qualifier next to the Nearby section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Within 5 km"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "5km 圏内"
           }
         }
       }
@@ -493,6 +550,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "すべて折りたたむ"
+          }
+        }
+      }
+    },
+    "全部点位" : {
+      "comment" : "Compact button showing every spot of the work on the map",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All spots"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全スポット"
           }
         }
       }
@@ -900,6 +975,24 @@
         }
       }
     },
+    "地图" : {
+      "comment" : "Action opening the spot in Google Maps",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maps"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マップ"
+          }
+        }
+      }
+    },
     "地图设置" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -913,6 +1006,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "地図設定"
+          }
+        }
+      }
+    },
+    "地标" : {
+      "comment" : "Search results section header for pilgrimage spots",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spots"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スポット"
           }
         }
       }
@@ -947,6 +1058,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OK"
+          }
+        }
+      }
+    },
+    "学校周边，请注意巡礼礼仪" : {
+      "comment" : "Warning bar on spots next to schools and similar places",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Near a school — please follow pilgrimage etiquette"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "学校の近くです。巡礼マナーを守ってください"
           }
         }
       }
@@ -1245,6 +1374,60 @@
         }
       }
     },
+    "按分组" : {
+      "comment" : "Group spots by the folder they belong to",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "By group"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "グループ別"
+          }
+        }
+      }
+    },
+    "按话数" : {
+      "comment" : "Group spots by episode number",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "By episode"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "話数別"
+          }
+        }
+      }
+    },
+    "换个关键词试试，或浏览热门城市" : {
+      "comment" : "Hint under the empty search state",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try another keyword, or browse popular cities"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "別のキーワードを試すか、人気の都市から探してください"
+          }
+        }
+      }
+    },
     "探索动画巡礼圣地" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1258,6 +1441,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "アニメ聖地を探す"
+          }
+        }
+      }
+    },
+    "搜作品 / 地点 / 城市" : {
+      "comment" : "Search placeholder on the home card",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Works, places, cities"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作品・場所・都市を検索"
           }
         }
       }
@@ -1522,6 +1723,24 @@
         }
       }
     },
+    "查看原始链接" : {
+      "comment" : "Link to the original source of the spot data",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open source link"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元のリンクを開く"
+          }
+        }
+      }
+    },
     "查看截图" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1639,6 +1858,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "アニメ・マンガ・ゲームなど数多くの作品の実際のロケ地と対応するスクリーンショットを集約。巡礼の準備に役立ちます。"
+          }
+        }
+      }
+    },
+    "没有找到「%@」" : {
+      "comment" : "Empty search state; %@ is the query",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No results for “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は見つかりませんでした"
           }
         }
       }
@@ -1978,6 +2215,24 @@
         }
       }
     },
+    "离这里最近的巡礼点" : {
+      "comment" : "Section header listing spots nearest to a dropped pin",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spots nearest to this pin"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この地点に近い巡礼スポット"
+          }
+        }
+      }
+    },
     "笔刷粗细" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1991,6 +2246,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ブラシの太さ"
+          }
+        }
+      }
+    },
+    "继续" : {
+      "comment" : "Button resuming the most recently viewed work",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "続ける"
           }
         }
       }
@@ -2066,18 +2339,19 @@
       }
     },
     "街景" : {
+      "comment" : "Action button opening Google Street View. Keep it short — it sits in the narrowest slot of the action row.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Street View"
+            "value" : "Street"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ストリートビュー"
+            "value" : "ストリート"
           }
         }
       }
@@ -2101,6 +2375,24 @@
     },
     "要使用该功能，请在设备的\"设置\"中允许应用访问%@" : {
 
+    },
+    "试试:" : {
+      "comment" : "Label before suggested works when no work is in view",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try:"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "おすすめ:"
+          }
+        }
+      }
     },
     "话数" : {
       "extractionState" : "manual",
@@ -2138,6 +2430,24 @@
     },
     "请在设备的\"设置\"中允许应用访问相机" : {
 
+    },
+    "距我 %@" : {
+      "comment" : "Distance from the user to a spot; %@ is a formatted distance",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ away"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在地から %@"
+          }
+        }
+      }
     },
     "身处巡礼地附近？快速查找你当前位置周围的动画取景地，开启一场说走就走的发现之旅。" : {
       "extractionState" : "manual",
@@ -2203,6 +2513,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "巡礼スポット"
+          }
+        }
+      }
+    },
+    "巡礼点数据来自 anitabi.cn 社区，按 CC BY-NC-SA 4.0 授权使用。截图与作品名版权归原权利方所有，仅用于场景对照。" : {
+      "comment" : "Attribution paragraph on the About card",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spot data comes from the anitabi.cn community, used under CC BY-NC-SA 4.0. Screenshots and titles remain the property of their rights holders and appear here only for scene comparison."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "巡礼スポットのデータは anitabi.cn コミュニティ提供で、CC BY-NC-SA 4.0 に基づいて利用しています。スクリーンショットと作品名の権利は原権利者に帰属し、シーン照合のためだけに表示しています。"
+          }
+        }
+      }
+    },
+    "巡礼礼仪" : {
+      "comment" : "Title of the pilgrimage etiquette sheet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pilgrimage etiquette"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "巡礼マナー"
           }
         }
       }

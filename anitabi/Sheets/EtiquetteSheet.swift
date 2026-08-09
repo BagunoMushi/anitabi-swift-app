@@ -3,8 +3,8 @@
 //  anitabi
 //
 //  巡礼マナーの注意（`ScenePoint.needsEtiquetteWarning` が立つ地標＝学校・図書館など）。
-//  Web 版の ⚠️ アイコンは GitHub issue へ直リンクしているだけだが、アプリでは
-//  「まず現場での振る舞いを 3 文で伝えて、詳細は Safari へ」という 2 段にする。
+//  設計稿 1g をそのまま写す —— 34pt の琥珀の丸い `!` ＋ 標題、白い薄膜に入れた本文、
+//  そして「了解更多 ↗」（次）と「知道了」（主）のカプセル 2 枚。
 //
 //  「了解更多」の SFSafariViewController は**この sheet 自身**から出す。親（地標カード）へ
 //  投げ返して閉じてから開く形にすると、同フレームの dismiss + present で後の呈现が落ちる。
@@ -18,45 +18,49 @@ struct EtiquetteSheet: View {
     @State private var safariItem: SafariItem?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label {
-                Text("注意巡礼礼仪")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.primary)
-            } icon: {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+        VStack(alignment: .leading, spacing: SheetMetrics.headerBottomSpacing) {
+            HStack(spacing: SheetMetrics.thumbnailGap) {
+                Text(verbatim: "!")
+                    .font(SheetFont.titleCompactWork)
+                    .foregroundStyle(.white)
+                    .frame(width: SheetMetrics.guidanceIconDiameter, height: SheetMetrics.guidanceIconDiameter)
+                    .background(Color.anitabiWarnIcon, in: .circle)
+                Text("巡礼礼仪")
+                    .font(SheetFont.titleLarge)
+                    .foregroundStyle(Color.anitabiInk)
             }
 
             Text("这里是学校、图书馆一类的场所，请不要打扰在校师生和馆内秩序。拍摄请在校外或对外开放的区域进行，不要进入私人领域。请保持安静、遵守当地规定与现场指引，把巡礼留在不打扰任何人的范围里。")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(SheetFont.note)
+                .foregroundStyle(Color.anitabiInkSecondary)
+                .lineSpacing(SheetMetrics.etiquetteLineSpacing)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, SheetMetrics.scaled(16))
+                .padding(.vertical, SheetMetrics.scaled(14))
+                .anitabiPanel(radius: SheetMetrics.tileRadius)
 
             Spacer(minLength: 0)
 
-            // 高さは `controlSize(.large)`（実測 50pt）に決めさせる —— frame(height:) は書かない。
-            // 幅だけ全幅に伸ばす。prominent は 1 画面 1 枚まで（「知道了」だけ）。
-            VStack(spacing: 10) {
+            HStack(spacing: SheetMetrics.itemSpacing) {
                 Button {
                     safariItem = SafariItem(url: AnitabiWebLink.etiquetteIssue)
                 } label: {
-                    Text("了解更多").frame(maxWidth: .infinity)
+                    HStack(spacing: SheetMetrics.scaled(4)) {
+                        Text("了解更多")
+                        Image(systemName: "arrow.up.right")
+                            .font(SheetFont.meta)
+                    }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(AnitabiCapsuleStyle(kind: .secondary, fullWidth: true))
 
-                Button {
-                    dismiss()
-                } label: {
-                    Text("知道了").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
+                Button("知道了") { dismiss() }
+                    .buttonStyle(AnitabiCapsuleStyle(kind: .primary, fullWidth: true))
             }
-            .controlSize(.large)
-            .buttonBorderShape(.capsule)
         }
-        .padding(.horizontal, SheetMetrics.horizontalPadding)
-        .padding(.vertical, 20)
+        .scenePadding(.horizontal)
+        .padding(.top, SheetMetrics.topInset)
+        .padding(.bottom, SheetMetrics.scaled(20))
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
         .sheet(item: $safariItem) { item in SafariSheet(url: item.url) }

@@ -53,7 +53,7 @@ struct WelcomeView: View {
                 }
                 notice
             }
-            .padding(.horizontal, SheetMetrics.horizontalPadding)
+            .scenePadding(.horizontal)
             .padding(.top, Metrics.topInset)
             // 下は固定 CTA の分だけ余分に空けて、スクロール最下端でも本文が隠れないようにする。
             .padding(.bottom, 100)
@@ -162,7 +162,7 @@ struct WelcomeView: View {
         }
         .buttonStyle(.glassProminent)
         .controlSize(.large)
-        .padding(.horizontal, SheetMetrics.horizontalPadding)
+        .scenePadding(.horizontal)
         .padding(.vertical, 10)
     }
 }

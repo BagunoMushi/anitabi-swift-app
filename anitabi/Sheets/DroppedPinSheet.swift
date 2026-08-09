@@ -2,8 +2,13 @@
 //  DroppedPinSheet.swift
 //  anitabi
 //
-//  長押しで落とした針のカード。Web 版「空白クリック」の原生化——単クリック（タップ）は
-//  従来どおり選択解除に残すので、これは**長押し専用**の新しい入口になる。
+//  長押しで落とした針のカード。設計稿 1e / 2d をそのまま写す。Web 版「空白クリック」の
+//  原生化——単クリック（タップ）は従来どおり選択解除に残すので、これは**長押し専用**の入口。
+//
+//  設計稿 2d の三段（この 1 枚だけ全屏档を持たない）：
+//  - 一段式 = 反查した地名 ＋ 経緯度。まず針が落ちた場所が合っているか確かめる。
+//  - 两段式 = ＋ 導航／在此添加地标（禁止時は理由も添える）。
+//  - 三段式 = ＋ 針にいちばん近い巡礼点 3 件。
 //
 //  地図上の針そのもの（系统赤マーカー・落下演出）は `MapCanvas.droppedPinCoordinate` の役目。
 //  ここは出てきた後のカードの中身だけを持つ。
@@ -21,9 +26,14 @@ struct DroppedPinSheet: View {
     /// 現在のズーム。「在此添加地标」を z<16 で禁止する判定に使う（RootView の
     /// `router.cameraState?.zoom` をそのまま渡す）。
     let currentZoom: Double
+    /// いま何段目か。一段式では身份条より下を描かない（設計稿 2d 一段式）。
+    var stage: SheetStage = .medium
     /// 「最近の巡礼点」行から選んだ経路。RootView 側で針を消してから密度 flyTo する。
     var onSelectPoint: (ScenePoint) -> Void
     var onClose: () -> Void
+
+    /// sheet の中身は底部安全区を無効にしてあるので、列の末尾だけ自分で足し戻す。
+    @Environment(\.sheetBottomInset) private var sheetBottomInset
 
     @State private var placeName: String?
     @State private var geocodeFailed = false
@@ -35,25 +45,37 @@ struct DroppedPinSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                // この頭部は全档で同じ形なので、迷你条の枠（上下の余白込み）をそのまま
+                // 中/大档でも使う —— 一段式の実高もこれ 1 つで測れる。
                 cardHeader
-                    // 最小档 96pt がちょうど標題行だけ見える高さ（PointCardSheet と同じ数値の理由）。
-                    .padding(.top, SheetMetrics.cardHeaderTopInset)
-                    .padding(.bottom, SheetMetrics.cardHeaderBottomSpacing)
+                    .compactContentHeight(.droppedPin)
 
+                // 一段式では身份条より下を**描かない**。sheet の中身は底部安全区の下にも
+                // 描かれるので、高さを身份条ぴったりにしても次の節がホームインジケータ帯に覗く。
+                // 判定は生の sheet 高さ由来（RootView）なので、拖动に即座に追従する。
                 VStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
-                    if !nearestPoints.isEmpty {
-                        nearestSection
-                    }
                     actionRow
                     if currentZoom < Self.preciseAddZoom {
                         Text("放大地图后可精确添加")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .font(SheetFont.meta)
+                            .foregroundStyle(Color.anitabiInkTertiary)
+                            .frame(maxWidth: .infinity)
+                            .multilineTextAlignment(.center)
+                    }
+                    if !nearestPoints.isEmpty {
+                        nearestSection
                     }
                 }
+                // 一段式では中身を**レイアウトからも外す**（高さ 0 に畳む）。opacity だけで
+                // 隠していた版は、見えないまま場所を要求し続ける —— sheet の高さが足りないぶんを
+                // SwiftUI が身份条の余白から削るので、カードごとに 3〜10pt 潰れて
+                // 「首页の検索だけ上、他の 2 枚は下」という食い違いになっていた（実測）。
+                .frame(height: stage == .compact ? 0 : nil, alignment: .top)
+                .clipped()
+                .allowsHitTesting(stage != .compact)
             }
-            .padding(.horizontal, SheetMetrics.horizontalPadding)
-            .padding(.bottom, 24)
+            .scenePadding(.horizontal)
+            .padding(.bottom, SheetMetrics.scrollBottomPadding + sheetBottomInset)
         }
         .sheet(item: $safariItem) { item in SafariSheet(url: item.url) }
         .task {
@@ -64,22 +86,28 @@ struct DroppedPinSheet: View {
         .task { nearestPoints = await computeNearest() }
     }
 
-    // MARK: 1. 頭部（座標共有 ◯・地名・座標副題・✕）
+    // MARK: 1. 頭部（設計稿 2d：地名 ＋ 等幅の座標 ＋ 共有 ◯ ＋ ✕）
 
-    /// 作品カード・地標カードと同じ解剖（`CardHeader`）。
     /// 反查が済むまでは標題そのものが座標なので、そのときだけ副題を伏せて同じ字の二度書きを避ける。
     private var cardHeader: some View {
-        CardHeader(title: titleText, onClose: onClose) {
+        // 設計稿 2d は三段すべて 16px/900 —— 落針カードだけは档で標題の字が変わらない。
+        // だから最小档の実高もそのまま測れる（作品／地標カードのような複製は要らない）。
+        CardHeader(title: titleText, titleFont: SheetFont.titleCompactPoint, onClose: onClose) {
             ShareLink(item: shareCoordinateText) {
-                CardHeaderCircleLabel(systemName: "square.and.arrow.up")
+                CardCircleLabel(systemName: "square.and.arrow.up")
             }
             .buttonStyle(.plain)
             .accessibilityLabel("分享坐标")
         } subtitle: {
             if titleText != coordinateText {
                 Text(coordinateText)
+                    .font(SheetFont.mono)
+                    .foregroundStyle(Color.anitabiInkSecondary)
             }
         }
+        // 迷你条の行高は 4 枚のカードで共通（`compactBarRow`）。この頭部は全档で同じ形なので、
+        // 中/大档でもこの下限が効く（他カードの两段式の頭部も同じくらいの背丈になる）。
+        .compactBarRow()
     }
 
     /// 反查が済むまでは座標をそのまま見出しに使う（「加载中先显坐标」）。失败したら「已选位置」。
@@ -90,18 +118,41 @@ struct DroppedPinSheet: View {
     }
 
     private var coordinateText: String {
-        String(format: "%.4f, %.4f", coordinate.latitude, coordinate.longitude)
+        String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude)
     }
 
-    // MARK: 2. 最近的巡礼点
+    // MARK: 2. 動作排（設計稿 2d：2 枚で等分。禁止側は白 35% ＋ 墨 35%）
+
+    /// Google 导航を主（実心）にする——常に押せる導線を主にし、条件付きで禁止になり得る
+    /// 「在此添加地标」は次と同格に留める。座標の共有は頭部の丸釦。
+    private var actionRow: some View {
+        HStack(spacing: SheetMetrics.itemSpacing) {
+            Button {
+                open(AnitabiWebLink.googleMaps(lat: coordinate.latitude, lng: coordinate.longitude))
+            } label: {
+                Text("Google 导航")
+            }
+            .buttonStyle(AnitabiCapsuleStyle(kind: .primary, fullWidth: true, fillsRowHeight: true))
+
+            Button {
+                safariItem = SafariItem(url: AnitabiWebLink.createPoint(at: coordinate))
+            } label: {
+                Text("在此添加地标")
+            }
+            .buttonStyle(AnitabiCapsuleStyle(kind: .secondary, fullWidth: true, fillsRowHeight: true))
+            .disabled(currentZoom < Self.preciseAddZoom)
+        }
+    }
+
+    // MARK: 3. 最近的巡礼点（設計稿 2d 三段式）
 
     private var nearestSection: some View {
         VStack(alignment: .leading, spacing: SheetMetrics.headerSpacing) {
-            SheetSectionHeader("最近的巡礼点")
+            SheetSectionHeader("离这里最近的巡礼点")
             SheetListCard {
                 ForEach(Array(nearestPoints.enumerated()), id: \.element.id) { index, item in
                     if index > 0 {
-                        Divider().padding(.leading, 64 + SheetMetrics.thumbnailGap)
+                        SheetHairline(leadingInset: NearbyPointRow.textInset)
                     }
                     Button { onSelectPoint(item.point) } label: {
                         NearbyPointRow(store: store, item: item)
@@ -109,30 +160,6 @@ struct DroppedPinSheet: View {
                     .buttonStyle(.plain)
                 }
             }
-        }
-    }
-
-    // MARK: 3. 動作排
-
-    /// Google 导航を主（tint 填充）にする——常に押せる導線を主にし、条件付きで
-    /// 禁止になり得る「在此添加地标」は次と同格の `.tertiarySystemFill` に留める。
-    /// 座標の共有は頭部の丸釦へ移したので、この行は 2 枚で幅を等分する。
-    private var actionRow: some View {
-        HStack(spacing: 8) {
-            Button {
-                open(AnitabiWebLink.googleMaps(lat: coordinate.latitude, lng: coordinate.longitude))
-            } label: {
-                ActionTileLabel(systemImage: "car.fill", title: "Google 导航")
-            }
-            .buttonStyle(ActionTileButtonStyle(prominent: true))
-
-            Button {
-                safariItem = SafariItem(url: AnitabiWebLink.createPoint(at: coordinate))
-            } label: {
-                ActionTileLabel(systemImage: "mappin.and.ellipse", title: "在此添加地标")
-            }
-            .buttonStyle(ActionTileButtonStyle())
-            .disabled(currentZoom < Self.preciseAddZoom)
         }
     }
 

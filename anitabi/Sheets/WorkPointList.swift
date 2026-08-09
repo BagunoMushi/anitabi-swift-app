@@ -2,8 +2,11 @@
 //  WorkPointList.swift
 //  anitabi
 //
-//  作品カードの分組点一覧。`AnitabiStore.groupedPoints(for:mode:)` が組んだ `[PointGroup]` を
-//  そのまま描くだけ——分組ロジック自体は Store 側（阶段 1）の持ち物。
+//  作品カードの分組点一覧。設計稿 2b の一覧カード（角丸 18・`50×38` の剧照・点名 13.5/700・
+//  meta 11px・行末 `›`）をそのまま写す。分組ロジック自体は Store 側の持ち物。
+//
+//  選中行は設計稿 1c のとおり**主題色の枠**で示す（`rgba(theme,.16)` 地 ＋ 1.5pt の主題色描边・
+//  角丸 14）。系统の accent 色ではなく作品の色にするのがこの App の識別子。
 //
 
 import SwiftUI
@@ -15,27 +18,31 @@ struct WorkPointList: View {
     let showsHeaders: Bool
     @Binding var collapsedGroupIDs: Set<String>
     let selectedPointID: String?
+    /// 選中行の描边に使う作品の主題色。
+    let themeColor: Color
     var onSelectPoint: (ScenePoint) -> Void
 
-    /// サムネイル 64 ＋ 間隔 12。分隔線はここまで寄せる。
-    private static let textInset: CGFloat = 64 + SheetMetrics.thumbnailGap
+    /// 剧照 50 ＋ 間隔 10。分隔線はここまで寄せる。
+    private static var textInset: CGFloat { SheetMetrics.pointThumbnailSize.width + SheetMetrics.thumbnailGap }
 
     var body: some View {
-        SheetListCard {
-            ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
-                if index > 0 {
-                    Divider().padding(.leading, showsHeaders ? 0 : Self.textInset)
-                }
+        VStack(alignment: .leading, spacing: showsHeaders ? SheetMetrics.sectionSpacing : 0) {
+            ForEach(groups) { group in
                 if showsHeaders {
-                    groupHeader(group)
-                }
-                if !showsHeaders || !collapsedGroupIDs.contains(group.id) {
-                    pointRows(group.points)
+                    VStack(alignment: .leading, spacing: SheetMetrics.headerSpacing) {
+                        groupHeader(group)
+                        if !collapsedGroupIDs.contains(group.id) {
+                            SheetListCard { pointRows(group.points) }
+                        }
+                    }
+                } else {
+                    SheetListCard { pointRows(group.points) }
                 }
             }
         }
     }
 
+    /// 設計稿 2b：`组名 12.5/900` ＋ `N 个点位 11px` ＋ 右端に折り畳みの `⌄`。
     private func groupHeader(_ group: PointGroup) -> some View {
         let collapsed = collapsedGroupIDs.contains(group.id)
         return Button {
@@ -43,18 +50,21 @@ struct WorkPointList: View {
                 if collapsed { collapsedGroupIDs.remove(group.id) } else { collapsedGroupIDs.insert(group.id) }
             }
         } label: {
-            HStack(spacing: 8) {
-                Text(group.name).font(.headline).lineLimit(1)
-                Text("\(group.points.count)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: SheetMetrics.scaled(6)) {
+                Text(group.name)
+                    .font(SheetFont.sectionTitle)
+                    .foregroundStyle(Color.anitabiInk)
+                    .lineLimit(1)
+                Text("\(group.points.count) 个点位")
+                    .font(SheetFont.meta)
+                    .foregroundStyle(Color.anitabiInkTertiary)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(SheetFont.meta.weight(.semibold))
+                    .foregroundStyle(Color.anitabiInkFaint)
                     .rotationEffect(.degrees(collapsed ? -90 : 0))
             }
-            .padding(.vertical, 10)
+            .padding(.horizontal, SheetMetrics.headerInset)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -63,11 +73,13 @@ struct WorkPointList: View {
     @ViewBuilder
     private func pointRows(_ points: [ScenePoint]) -> some View {
         ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
-            if index > 0 {
-                Divider().padding(.leading, Self.textInset)
+            let isSelected = point.id == selectedPointID
+            // 選中行は自前の枠を持つので、その上下には細線を引かない（設計稿 1c と同じ見え方）。
+            if index > 0, !isSelected, points[index - 1].id != selectedPointID {
+                SheetHairline(leadingInset: Self.textInset)
             }
             Button { onSelectPoint(point) } label: {
-                WorkPointRow(store: store, point: point, isSelected: point.id == selectedPointID)
+                WorkPointRow(store: store, point: point, isSelected: isSelected, themeColor: themeColor)
             }
             .buttonStyle(.plain)
         }
@@ -80,125 +92,74 @@ struct WorkPointRow: View {
     let store: AnitabiStore
     let point: ScenePoint
     let isSelected: Bool
+    let themeColor: Color
 
-    /// 主 17pt ＋ 副 15pt の 2 行きっかりに収める（実測規格の行高 69pt）。
-    /// 徽章と note は同じ 2 行目に並べる —— 3 行にすると Apple マップの地点行より縦に伸びてしまう。
     var body: some View {
-        HStack(alignment: .center, spacing: SheetMetrics.thumbnailGap) {
-            PointThumbnail(url: point.thumbnailURL, gradient: themeGradient)
-                .frame(width: 64, height: 36)
+        HStack(spacing: SheetMetrics.thumbnailGap) {
+            SceneThumbnail(
+                url: point.thumbnailURL,
+                size: SheetMetrics.pointThumbnailSize,
+                radius: SheetMetrics.pointThumbnailRadius,
+                // 剧照が無いことを主題色で示す（作品カードは既に 1 作品に絞られているので
+                // 大面积主题色にはならない）。
+                placeholder: point.thumbnailURL == nil ? themeGradient : nil
+            )
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: SheetMetrics.rowTitleGap) {
                 Text(point.displayName.nilIfBlank ?? String(localized: "巡礼点"))
-                    .font(.body)
+                    .font(SheetFont.rowTitleDense)
+                    .foregroundStyle(Color.anitabiInk)
                     .lineLimit(1)
-                subtitleRow
+                metaRow
             }
             Spacer(minLength: 0)
+            RowChevron()
         }
         .padding(.vertical, SheetMetrics.rowVerticalPadding)
+        // 選中行だけ主題色の枠を被せる（設計稿 1c `padding:9px 8px; margin:4px -8px`）。
+        .padding(.horizontal, isSelected ? SheetMetrics.scaled(8) : 0)
         .background {
             if isSelected {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.12))
-                    .padding(.horizontal, -8)
+                RoundedRectangle(cornerRadius: SheetMetrics.tileRadius, style: .continuous)
+                    .fill(themeColor.opacity(0.16))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: SheetMetrics.tileRadius, style: .continuous)
+                            .strokeBorder(themeColor, lineWidth: SheetMetrics.shape(1.5))
+                    }
             }
         }
+        .padding(.horizontal, isSelected ? -SheetMetrics.scaled(8) : 0)
+        .padding(.vertical, isSelected ? SheetMetrics.scaled(4) : 0)
         .contentShape(.rect)
     }
 
-    /// 徽章も note も無い点では 2 行目そのものを出さない（空行ぶんの余白を残すと
-    /// 文字がサムネイルに対して上に浮いて見える）。その場合は 64×36 のサムネイルが
-    /// 行高を決めて 64pt 行になる —— Apple マップの 1 行行と同じ帯。
+    /// 設計稿 2b の 2 行目：`EP03 · 08:12` の後ろに「注意礼仪」徽章、無ければ折り／備考を出す。
+    /// 3 行にはしない（1 行に収まらない情報は地標カードで読む）。
     @ViewBuilder
-    private var subtitleRow: some View {
-        let subtitle = point.note?.nilIfBlank ?? point.folderName?.nilIfBlank
-        let hasBadges = point.episodeBadge != nil || point.timecodeText != nil || point.needsEtiquetteWarning
-        if hasBadges || subtitle != nil {
-            HStack(spacing: 6) {
-                badgeRow
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+    private var metaRow: some View {
+        let meta = [point.episodeBadge, point.timecodeText, point.note?.nilIfBlank ?? point.folderName?.nilIfBlank]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+        if !meta.isEmpty || point.needsEtiquetteWarning {
+            HStack(spacing: SheetMetrics.scaled(5)) {
+                if !meta.isEmpty {
+                    Text(meta)
+                        .font(SheetFont.meta)
+                        .foregroundStyle(Color.anitabiInkSecondary)
                         .lineLimit(1)
+                }
+                if point.needsEtiquetteWarning {
+                    EtiquetteBadge()
                 }
             }
         }
     }
 
     private var themeGradient: LinearGradient {
-        let color = store.color(forBangumi: point.bangumiID)
-        return LinearGradient(
-            colors: [color, color.mix(with: .black, by: 0.28)],
+        LinearGradient(
+            colors: [themeColor, themeColor.mix(with: .black, by: 0.28)],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
-    }
-
-    @ViewBuilder
-    private var badgeRow: some View {
-        let ep = point.episodeBadge
-        let timecode = point.timecodeText
-        let warns = point.needsEtiquetteWarning
-        if ep != nil || timecode != nil || warns {
-            HStack(spacing: 4) {
-                if let ep { MetaBadge(text: ep) }
-                if let timecode { MetaBadge(text: timecode) }
-                if warns {
-                    MetaBadge(text: String(localized: "注意礼仪"), systemImage: "exclamationmark.triangle.fill", tint: .orange, prominent: true)
-                }
-            }
-        }
-    }
-}
-
-/// 点行の徽章（EP・タイムコード・礼仪注意）に共通の小さなカプセル。
-/// 字は `.caption2` regular／medium まで —— heavy も px 直書きも使わない。
-private struct MetaBadge: View {
-    let text: String
-    var systemImage: String?
-    var tint: Color = .secondary
-    var prominent = false
-
-    var body: some View {
-        HStack(spacing: 2) {
-            if let systemImage {
-                Image(systemName: systemImage).imageScale(.small)
-            }
-            Text(text)
-        }
-        .font(.caption2.weight(.medium))
-        .foregroundStyle(prominent ? tint : Color.secondary)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .background(prominent ? tint.opacity(0.15) : Color(.tertiarySystemFill), in: .capsule)
-    }
-}
-
-/// 64×36 の点行サムネイル。無ければ主題色グラデーション＋灰色の photo 符号
-/// （HomeBrowseView の `ThumbnailView` と違い、こちらは「剧照が無い」ことを主題色で示す——
-/// 作品カードは既に 1 作品に絞られているので大面积主题色にはならない）。
-private struct PointThumbnail: View {
-    let url: URL?
-    let gradient: LinearGradient
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(gradient)
-            .overlay {
-                if let url {
-                    AsyncImage(url: url) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill()
-                        }
-                    }
-                } else {
-                    Image(systemName: "photo")
-                        .foregroundStyle(.secondary)
-                        .imageScale(.small)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }

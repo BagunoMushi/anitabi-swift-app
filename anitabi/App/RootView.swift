@@ -34,6 +34,22 @@ import MapKit
 import SwiftUI
 import UIKit
 
+// MARK: - 常駐 sheet の生の寸法
+
+/// `residentSheet` の中身の実寸。**sheet の内側**で測った値だけを持つ。
+private struct SheetGeometry: Equatable {
+    /// 中身の高さ。拖动の途中も毎フレーム更新される。
+    var height: CGFloat = 0
+    /// 中身に入る底部安全区。
+    var bottomInset: CGFloat = 34
+    /// 中身の枠の画面座標。可視カード（`SheetShapeReader` の実測）との差を出すのに使う。
+    var minY: CGFloat = 0
+    /// 系统が中身の**外側・上**に確保している帯（抓手ぶん）。
+    /// 「中身の上端の画面座標」−「档の高さから逆算した sheet の上端」で実測する。
+    /// ここを見積もりで埋めると一段式の下余白が必ずずれるので、必ず実測値を使う。
+    var topChrome: CGFloat = 0
+}
+
 // MARK: - RootView
 
 struct RootView: View {
@@ -77,6 +93,24 @@ struct RootView: View {
     @State private var command: MapCameraCommand?
     /// 画面全体の大きさ。カード高さぶんの下余白・上寄せ量を実測値から出すために持つ。
     @State private var windowSize: CGSize = .zero
+    /// 常駐 sheet の中身の生の寸法。**sheet の内側**で測る —— 窓の底部安全区（実測 34）と
+    /// sheet の中身に入る底部安全区（実測 32）は別の値で、後者でないと最小档が 2pt ずれる。
+    /// 高さは拖动の**途中も**毎フレーム届くので、いま何段目かの判定にもこれを使う。
+    @State private var sheetGeometry = SheetGeometry()
+    /// 各層が報せてきた「一段式の中身の実高」。最小档はこの実測値で組む
+    /// ——定数だと Dynamic Type・言語で必ずズレる（一段式は「身份条がちょうど残る高さ」なので、
+    /// ズレると余る／切れる）。一度届いた値は消さずに残す。
+    @State private var compactHeights: [SheetLayer: CGFloat] = [:]
+    /// 各層が報せてきた「中身の実高」（两段式・三段式ぶん）。設計稿の比率を**上限**として、
+    /// 中身がそこまで無いカードは档をここまで詰める（`SheetLayer.initialHeight` / `maxHeight`）——
+    /// 比率は固定・中身は可変なので、詰めないと同じ地標カードでも剧照／備考の有無で
+    /// カードの下が 40〜300pt 空く。
+    @State private var fittedHeights: [SheetLayer: SheetContentHeights] = [:]
+    /// 上の値の反映待ち。档を跨ぐ最中は剧照が伸び縮みし切るまで毎フレーム値が変わるので、
+    /// 落ち着いてから 1 回だけ档へ渡す。
+    @State private var fitTask: Task<Void, Never>?
+    /// 可視カードの枠（`SheetShapeReader` の実測。グローバル座標）。
+    @State private var cardFrame: CGRect?
 
     // MARK: 呈现スタック（1 枚の sheet の中身）
 
@@ -85,7 +119,10 @@ struct RootView: View {
     /// 同じ `withAnimation` の中で入れ替えるには、両方が @State である必要がある。
     @State private var stack: [SheetContent] = [.home]
     /// 常駐 sheet の生きている档。全層で 1 本だけ。
-    @State private var detent: PresentationDetent = SheetLayer.home.initialDetent
+    @State private var detent: PresentationDetent = SheetLayout.detent(
+        SheetLayer.home.initialFraction,
+        screenHeight: DesignScale.screenHeight
+    )
     /// 覆われた層の档の記憶（key は `SheetContent.id`）。閉じて戻ってきたときに復元する。
     /// スタックから外れた層のぶんは毎回間引くので、中身は常に高々 3 件。
     @State private var rememberedDetents: [String: PresentationDetent] = [:]
@@ -119,6 +156,12 @@ struct RootView: View {
     @State private var handoffDebounceTask: Task<Void, Never>?
 
     @Environment(\.scenePhase) private var scenePhase
+    /// 字級。**値そのものは使わない** —— 寸法トークン（`SheetMetrics` / `SheetFont`）は
+    /// `UITraitCollection.current` を直に読むので、SwiftUI から見ると字級への依存が無く、
+    /// 「設定」で字を変えても木が作り直されない限り古い寸法のまま描き続ける（実測）。
+    /// `@ScaledMetric` は環境値を読むのでこの問題が起きない —— こちらは環境値を 1 つ読んで
+    /// カードの identity に混ぜ、字級が変わったら中身を作り直させる（`residentSheet` の `.id`）。
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         // SwiftUI の呈现キューは「シーン内で同時に有効な sheet 系は 1 枚」——
@@ -135,6 +178,10 @@ struct RootView: View {
             content
             AppIdentityPillOverlay()
         }
+        // 設計稿（claude.ai/design「圣地巡礼卡片组件」）の Zen Maru Gothic に最も近い系统書体。
+        // 根で 1 回だけ掛けて、シート・浮控・トーストの全部を同じ書体に揃える
+        // （等幅にしたい座標／EP 徽章だけ `SheetFont` 側で `.monospaced()` を上書きする）。
+        .fontDesign(.rounded)
         .fullScreenCover(isPresented: $isWelcomePresented) {
             WelcomeView(onFinish: { isWelcomePresented = false })
         }
@@ -142,6 +189,9 @@ struct RootView: View {
 
     private var content: some View {
         mapLayer
+            // 見えている地図の大きさ。镜头を寄せるときにカードで隠れる帯を差し引くのに使う
+            // （`refitWork` / `selectPointFromList`）。これを測り忘れると bottomInset が 0 になり、
+            // 「全部の点位を表示」が開いた直後の画と同じ镜头を出して**効かなく見える**。
             .onGeometryChange(for: CGSize.self) { $0.size } action: { windowSize = $0 }
             .sheet(isPresented: .constant(!isWelcomePresented)) { residentSheet }
             .task {
@@ -232,8 +282,9 @@ struct RootView: View {
                     }
                     .padding(.top, 16)
                     .padding(.horizontal, 16)
-                    .opacity(detent == .large ? 0 : 1)
-                    .animation(.anitabiSpring, value: detent == .large)
+                    // 三段式（設計稿 92.2%）まで持ち上がったら浮控を退かせる。
+                    .opacity(stage(of: top) == .expanded ? 0 : 1)
+                    .animation(.anitabiSpring, value: stage(of: top) == .expanded)
                     Spacer(minLength: 0)
                 }
             }
@@ -266,22 +317,161 @@ struct RootView: View {
     /// 下の層を `if` で消さずに opacity で隠すのは、検索文字列・スクロール位置・
     /// 分组の折り畳み状態を保つため（消すと @State ごと作り直しになる）。
     private var residentSheet: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             ForEach(stack) { entry in
                 sheetContent(entry)
+                    // 隠れた層の最小高さを sheet に**伝えない**。首页の身份条（検索行＋chips）は
+                    // 潰せないので、他カードの一段式（それより低い）では ZStack の最小高さが档を超え、
+                    // 系统が中身をセンタリングして**カードの上下へはみ出す**（実測）。
+                    // 隠れた層は高さ 0 の枠に上詰めで収める——mount したまま・状態は保つ。
+                    .frame(maxHeight: entry.id == top.id ? .infinity : 0, alignment: .top)
                     .opacity(entry.id == top.id ? 1 : 0)
                     .allowsHitTesting(entry.id == top.id)
                     .accessibilityHidden(entry.id != top.id)
                     .transition(Self.cardTransition)
             }
         }
+        // 字級が変わったらカードを作り直す（上の `dynamicTypeSize` のメモ参照）。
+        // 巻き戻るのはスクロール位置と検索文字列だけで、呈现スタックと档は RootView 側なので残る。
+        .id(dynamicTypeSize)
+        // 設計稿の一段式は身份条の下が 14px しかない。系统は中身を底部安全区の**上**に
+        // 閉じ込めるので、ここで無効にして可視カードの下端まで使う（スクロールする列の
+        // 末尾だけ環境値 `sheetBottomInset` で足し戻す）。
+        // **必ず呈现修饰（presentationDetents 等）より内側に付けること** —— 外側（presentation
+        // 修飾の後ろ）に付けた版は無効で、中身がカード下端に届かないのに safeAreaInsets だけ
+        // 34 を報せていた（実測）。
+        .ignoresSafeArea(.container, edges: .bottom)
         // 档の集合と選択は同じ `top` から出る＝必ず同じ更新で入れ替わる。
-        .presentationDetents(top.layer.detents, selection: $detent)
+        .presentationDetents(
+            top.layer.detents(
+                measured: compactHeights[top.layer],
+                fitted: fittedHeights[top.layer],
+                screenHeight: DesignScale.screenHeight
+            ),
+            selection: $detent
+        )
+        // カードの地は設計稿そのまま —— `blur(24px) saturate(1.6)`（＝系统の material）の上に
+        // 「淡緑 #D4FFD5 ＋ 白 55%」の合成色 #ECFFEC を敷く。**中身の面**（一覧カード・
+        // カプセル）はガラスにしない（設計稿も白い薄膜であって、ガラスの重ね掛けはしていない）。
+        //
+        // iOS 26 の公式指針は「`presentationBackground` を使わず系统の Liquid Glass に任せる」だが、
+        // **ここは意図的に外れる**：系统のガラスは透けすぎて、地図の海（青）・緑地・全彩の剧照標が
+        // そのままカードに映り込む（実機で確認済み。同じ見た目を一度出して却下されている）。
+        // 設計稿の地色はこのアプリの identity なので、公式指針より設計稿を優先する。
+        .presentationBackground {
+            Rectangle()
+                .fill(.regularMaterial)
+                .overlay(Color.anitabiCardGlass)
+                .ignoresSafeArea()
+        }
         // 半开までは地図に直接触れる。全开のときだけ sheet が地図を占有する。
-        .presentationBackgroundInteraction(.enabled(upThrough: top.layer.initialDetent))
+        .presentationBackgroundInteraction(.enabled(upThrough: initialDetent(top.layer)))
         .presentationDragIndicator(.visible)
         // 下スワイプで閉じない（＝各層の mini 档が下限）。閉じるのは ✕ だけ。
         .interactiveDismissDisabled()
+        .environment(\.sheetBottomInset, sheetGeometry.bottomInset)
+        // 可視カード（系统が描く浮きカプセル）の枠を UIKit 側から実測する。SwiftUI の中身の枠とは
+        // 一致せず、系统は API でも safe area でも教えてくれないので、ここだけ UIKit を覗く。
+        .background { SheetShapeReader { cardFrame = $0 } }
+        .environment(\.compactBarInsets, compactBarInsets)
+        .onGeometryChange(for: SheetGeometry.self) { proxy in
+            SheetGeometry(
+                height: proxy.size.height,
+                bottomInset: proxy.safeAreaInsets.bottom,
+                minY: proxy.frame(in: .global).minY,
+                topChrome: proxy.frame(in: .global).minY - (DesignScale.screenHeight - proxy.size.height)
+            )
+        } action: { sheetGeometry = $0 }
+        // 身份条の実高が届いたら覚える。1pt 未満の揺れでは書き換えない
+        // （拖动中に @State を毎フレーム書くと档の集合が作り直されて操作が重くなる）。
+        .onPreferenceChange(CompactContentHeightKey.self) { measured in
+            for (layer, height) in measured where height > 1 {
+                let old = compactHeights[layer]
+                guard abs((old ?? -1) - height) > 1 else { continue }
+                compactHeights[layer] = height
+                // 一段式に**居る最中**に身份条の実高が変わったら（chips 行の出入りなど）、
+                // 選択中の档も同じ更新で新しい最小档へ移す。置き去りにすると古い選択が
+                // 新しい集合に無くなり、系统が sheet を初期档まで跳ね上げる（実測）。
+                if layer == top.layer, detent == layer.minDetent(measured: old) {
+                    detent = layer.minDetent(measured: height)
+                }
+            }
+        }
+        // 中身の実高。こちらは**いちばん上の層のぶんだけ**採る（隠れた層は見えないまま
+        // 中身が変わることがあり、その値で見えている档を動かす理由が無い）。
+        .onPreferenceChange(FittedContentHeightKey.self) { measured in
+            guard let content = measured[top.layer] else { return }
+            // 中身の実高 → 档の高さ。可視カードは档より底部安全区ぶん高い
+            // （`SheetLayout.minHeight` のメモ：可視高さ ＝ h ＋ 底部安全区）。
+            let inset = sheetGeometry.bottomInset
+            scheduleFit(
+                layer: top.layer,
+                heights: SheetContentHeights(medium: content.medium - inset, expanded: content.expanded - inset)
+            )
+        }
+    }
+
+    /// 档を中身の実高まで詰める。**すぐには適用しない** —— 档を跨ぐ最中は剧照が
+    /// 伸び縮みし切るまで毎フレーム値が変わるので、落ち着いてから 1 回だけ渡す。
+    /// 待ちは 80ms —— カードが開くバネ（0.35s）より短いので、開いた直後の補正は
+    /// その動きに溶けて 1 つの動作に見える。
+    private func scheduleFit(layer: SheetLayer, heights: SheetContentHeights) {
+        fitTask?.cancel()
+        guard let old = fittedHeights[layer] else {
+            // その層の初回だけは待たずに入れる（待つと開くバネの後に一段遅れて動く）。
+            applyFit(layer: layer, heights: heights, old: nil)
+            return
+        }
+        guard abs(old.medium - heights.medium) > 1 || abs(old.expanded - heights.expanded) > 1 else { return }
+        fitTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
+            applyFit(layer: layer, heights: heights, old: old)
+        }
+    }
+
+    /// 詰めた高さを档へ。**選択中の档も同じ更新で移す** —— 置き去りにすると古い選択が
+    /// 新しい集合から消え、系统が档を跳ねさせる（最小档と同じ理屈）。
+    private func applyFit(layer: SheetLayer, heights: SheetContentHeights, old: SheetContentHeights?) {
+        let screenHeight = DesignScale.screenHeight
+        let wasInitial = detent == layer.initialDetent(screenHeight: screenHeight, fitted: old)
+        let wasMax = detent == layer.maxDetent(screenHeight: screenHeight, fitted: old)
+        withAnimation(.anitabiSpring) {
+            fittedHeights[layer] = heights
+            guard layer == top.layer else { return }
+            if wasInitial {
+                detent = layer.initialDetent(screenHeight: screenHeight, fitted: heights)
+            } else if wasMax {
+                detent = layer.maxDetent(screenHeight: screenHeight, fitted: heights)
+            }
+        }
+    }
+
+    /// 迷你条の「中身の枠」と「可視カード」のズレ。身份条の上下余白はこれを足してから置く
+    /// （`CompactBarRow`）—— 定数で埋めると機種・OS 更新でずれる。
+    /// 一段式に居るときだけ意味がある値なので、それ以外は 0（＝素の余白）に落とす。
+    private var compactBarInsets: CompactBarInsets {
+        guard let cardFrame, stage(of: top) == .compact, sheetGeometry.height > 0 else {
+            return CompactBarInsets()
+        }
+        let contentTop = sheetGeometry.minY
+        let barBottom = contentTop + SheetLayout.minHeight(compactHeights[top.layer] ?? top.layer.minContentFallback)
+        // 0.5pt 未満は捨てる（実測値が毎フレーム微動するとレイアウトが揺れ続ける）。
+        func quantized(_ value: CGFloat) -> CGFloat { (max(0, value) * 2).rounded() / 2 }
+        return CompactBarInsets(
+            top: quantized(cardFrame.minY - contentTop),
+            bottom: quantized(barBottom - cardFrame.maxY)
+        )
+    }
+
+    /// 两段式の档（層ごとの実測反映込み）。呈现・背景交互・镜头の全部がこれを使う。
+    private func initialDetent(_ layer: SheetLayer) -> PresentationDetent {
+        layer.initialDetent(screenHeight: DesignScale.screenHeight, fitted: fittedHeights[layer])
+    }
+
+    /// 三段式の档（同上）。
+    private func maxDetent(_ layer: SheetLayer) -> PresentationDetent {
+        layer.maxDetent(screenHeight: DesignScale.screenHeight, fitted: fittedHeights[layer])
     }
 
     @ViewBuilder
@@ -294,6 +484,9 @@ struct RootView: View {
                 locationProvider: locationProvider,
                 cameraState: router.cameraState,
                 homeDetent: $detent,
+                stage: stage(of: entry),
+                expandedDetent: maxDetent(.home),
+                initialDetent: initialDetent(.home),
                 onSelectPoint: { selectPointFromList($0) },
                 onFocusCity: { focusCity($0) }
             )
@@ -302,6 +495,7 @@ struct RootView: View {
                 store: store,
                 workID: selection.id,
                 selectedPointID: router.pointCard?.id,
+                isMinimized: stage(of: entry) == .compact,
                 onSelectPoint: selectPointFromList,
                 onClose: { router.closeWorkCard() },
                 onRefit: { refitWork(selection.id) }
@@ -312,6 +506,7 @@ struct RootView: View {
                 router: router,
                 locationProvider: locationProvider,
                 selection: selection,
+                stage: stage(of: entry),
                 onSelectWork: { router.handOffToWork(id: $0) },
                 onClose: { router.closePointCard() }
             )
@@ -320,6 +515,7 @@ struct RootView: View {
                 store: store,
                 coordinate: pin.coordinate,
                 currentZoom: router.cameraState?.zoom ?? 0,
+                stage: stage(of: entry),
                 onSelectPoint: { point in
                     router.droppedPin = nil
                     selectPointFromList(point)
@@ -327,6 +523,30 @@ struct RootView: View {
                 onClose: { router.droppedPin = nil }
             )
         }
+    }
+
+    /// いま何段目に居るか（設計稿 t2 の 小/中/大）。
+    ///
+    /// 判定に `PresentationDetent` の等値比較を使わないのが肝：あれは**吸着した後**にしか変わらないので、
+    /// 「一段式では身份条より下を描かない」を等値比較で実装すると、拖动の途中はカードが空のまま伸びて
+    /// 吸着した瞬間に中身が湧く、という見え方になる。生の高さで見れば指の動きにそのまま追従する。
+    ///
+    /// 境界は隣の档との**中点**に置く（`.height()` で頼んだ値と実際の中身の高さには数 pt のズレがあるので、
+    /// 等値に近い閾値だと取りこぼす）。隠れている層は常に「中」——見えていない頭部を作り替える意味が無い。
+    private func stage(of entry: SheetContent) -> SheetStage {
+        guard entry.id == top.id, sheetGeometry.height > 0 else { return .medium }
+        let layer = entry.layer
+        let minHeight = SheetLayout.minHeight(compactHeights[layer] ?? layer.minContentFallback)
+        let initialHeight = layer.initialHeight(screenHeight: DesignScale.screenHeight, fitted: fittedHeights[layer])
+        let maxHeight = layer.maxHeight(screenHeight: DesignScale.screenHeight, fitted: fittedHeights[layer])
+
+        // 目標高さのうち、いま実際にいちばん近いものを採る。
+        // （`.height()` で頼んだ値と実際の中身の高さには数 pt のズレがあるので閾値では取りこぼす）
+        var targets: [(SheetStage, CGFloat)] = [(.compact, minHeight), (.medium, initialHeight)]
+        // 三段目を持たない層（地標カード）では `.expanded` を候補に入れない —— 入れると
+        // 行けもしない档に吸い寄せられて頭部や剧照が別物に化ける。
+        if layer.hasExpandedStage { targets.append((.expanded, maxHeight)) }
+        return targets.min { abs($0.1 - sheetGeometry.height) < abs($1.1 - sheetGeometry.height) }?.0 ?? .medium
     }
 
     // MARK: 呈现スタックの同期
@@ -366,7 +586,7 @@ struct RootView: View {
 
         withAnimation(.anitabiSpring) {
             stack = next
-            detent = restored ?? target.layer.initialDetent
+            detent = restored ?? initialDetent(target.layer)
         }
     }
 
@@ -377,7 +597,9 @@ struct RootView: View {
     /// 外れるのと同じ理屈（この App には本物の追従モードは無いが、見た目だけ揃える）。
     private func collapseTopSheet() {
         isLocationActive = false
-        withAnimation(.anitabiSpring) { detent = top.layer.minDetent }
+        withAnimation(.anitabiSpring) {
+            detent = top.layer.minDetent(measured: compactHeights[top.layer])
+        }
     }
 
     /// 浮控の定位钮。授权済みなら镜头を寄せて「アクティブ」表示に、拒否済みなら設定アプリへ、
@@ -437,7 +659,9 @@ struct RootView: View {
             )
         )
         // Apple マップ同様、都市へ寄せたら sheet は半开に落として地図を見せる。
-        withAnimation(.anitabiSpring) { detent = SheetLayer.home.initialDetent }
+        withAnimation(.anitabiSpring) {
+            detent = initialDetent(.home)
+        }
     }
 
     /// `version` は単調増加させること。同じ値だと地図エンジンが索引の建て直しを省く。
