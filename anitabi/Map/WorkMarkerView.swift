@@ -13,8 +13,12 @@ import UIKit
 final class WorkMarkerView: MKAnnotationView {
     static let reuseIdentifier = "anitabi.work"
 
-    private static let iconSize: CGFloat = 22
+    /// Web `bangumis` 層のアイコン寸法。スプライトの 60×60 セルを `pixelRatio: 2` で載せるので 30pt。
+    private static let iconSize: CGFloat = MapMarkerMetrics.WorkMarker.iconSize
     private static let dotSize: CGFloat = 12
+    /// Web は `text-anchor: "top"` ＋ `text-offset: [0, 0.8em]` ＝ 文字の上端がアイコン中心の
+    /// 8.8pt 下（＝アイコン下端に 6.2pt 食い込む）。ここでは重ねずに詰めるだけにする
+    /// ——MapKit のラベルは自前描画なので、食い込ませると白ハローがアイコンを削るため。
     private static let labelGap: CGFloat = 2
     private static let maxLabelWidth: CGFloat = 92
     /// 作品名は 10 文字で切る。地図上の文字列はここを超えると隣とぶつかって読めなくなる。
@@ -137,15 +141,21 @@ final class WorkMarkerView: MKAnnotationView {
         name.count <= maxNameLength ? name : String(name.prefix(maxNameLength)) + "…"
     }
 
+    /// Web `bangumis` 層の `text-size: 11` ＋ `text-halo-color: #FFF` / `text-halo-width: 1`
+    /// （`4b970b29.js:1447-1468`）。11pt は Dynamic Type の既定より小さいので、
+    /// アクセシビリティ設定に追随できるよう `.caption2` を基準にスケールさせる。
     private static func haloedTitle(_ text: String, color: UIColor) -> NSAttributedString {
-        let size = UIFont.preferredFont(forTextStyle: .caption1).pointSize
+        let size = UIFontMetrics(forTextStyle: .caption2)
+            .scaledValue(for: MapMarkerMetrics.WorkMarker.textSize)
         return NSAttributedString(
             string: text,
             attributes: [
-                .font: UIFont.systemFont(ofSize: size, weight: .semibold),
+                // Web は "DIN Pro Bold"。
+                .font: UIFont.systemFont(ofSize: size, weight: .bold),
                 .foregroundColor: color,
                 // 負値＝縁取りしたうえで塗りつぶす。フォントサイズに対する百分率。
-                // 太くすると字が白い塊に見えて主題色が飛ぶ。輪郭は薄く、明るさは影のハローで稼ぐ。
+                // Web の halo-width: 1 を字画の太さで再現すると白い塊に見えるので、
+                // 輪郭は薄くして明るさは影のハロー（白 shadow radius 2）で稼ぐ。
                 .strokeColor: UIColor.white,
                 .strokeWidth: -4,
             ]

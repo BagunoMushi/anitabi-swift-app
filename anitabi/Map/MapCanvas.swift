@@ -153,6 +153,18 @@ struct MapCanvas: UIViewRepresentable {
         span: MKCoordinateSpan(latitudeDelta: 14, longitudeDelta: 14)
     )
 
+    /// 署名（Apple ロゴ＋「法的情報」リンク）を持ち上げる高さ。MKMapView は署名を
+    /// `layoutMargins` の内側へ置くので、常駐 sheet に食われないためにはここで逃がすしかない
+    /// （MapKit の表示規約上、署名を隠す・自前で描き直すのは不可）。
+    ///
+    /// 100pt の根拠（Maestro の hierarchy 実測・iPhone 17 Pro）：収起档の HomeSheet の上縁は
+    /// 画面下から約 100pt（`SheetLayout.homeMinHeight` 72 ＋ ホームインジケータ帯）。
+    /// MKMapView は署名の下端をこの余白のさらに約 10pt 上へ置くので、100 で約 10pt 空く。
+    /// 半开／全开まで持ち上げれば署名は覆われるが、それは Apple マップ自身と同じ挙動。
+    ///
+    /// **この値はカメラには効かせない**（`Coordinator.compensatingMargin` で打ち消す）。
+    static let attributionBottomMargin: CGFloat = 100
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MKMapView {
@@ -181,8 +193,11 @@ struct MapCanvas: UIViewRepresentable {
         )
         // 既定では safe area ぶんが layoutMargins に入り、setVisibleMapRect がそのぶん引いた画を出す
         // （要求ズームより約 0.17 浅くなる）。余白は呼び出し側が edgePadding で明示する方針なので殺す。
+        // 下辺だけは署名の置き場として残す（`attributionBottomMargin` 参照。カメラ側で打ち消す）。
         mapView.insetsLayoutMarginsFromSafeArea = false
-        mapView.layoutMargins = .zero
+        mapView.layoutMargins = UIEdgeInsets(
+            top: 0, left: 0, bottom: Self.attributionBottomMargin, right: 0
+        )
         mapView.setRegion(initialRegion, animated: false)
         context.coordinator.attach(to: mapView, style: baseStyle)
         // SwiftUI の状態更新はここでは行わない（呼び出し側が `DispatchQueue.main.async` などで
@@ -378,7 +393,7 @@ extension MapCanvas {
 
         private func runUpdate() async {
             guard let mapView, mapView.bounds.width > 0 else { return }
-            let region = mapView.region
+            let region = fullBoundsRegion(of: mapView)
             let zoom = MapCameraPlanner.zoom(for: region, width: mapView.bounds.width)
 
             parent.onCameraIdle(
@@ -574,7 +589,9 @@ extension MapCanvas {
             case .fitWork(let coordinates, let bottomInset):
                 guard let raw = MapCameraPlanner.fitRect(for: coordinates) else { return }
                 let rect = MapCameraPlanner.clampedToMaxZoom(raw, viewSize: size)
-                let padding = MapCameraPlanner.edgePadding(viewSize: size, bottomInset: bottomInset)
+                let padding = Self.compensatingMargin(
+                    MapCameraPlanner.edgePadding(viewSize: size, bottomInset: bottomInset)
+                )
                 let apply = { mapView.setVisibleMapRect(rect, edgePadding: padding, animated: true) }
                 command.animated ? animateCamera(apply) : mapView.setVisibleMapRect(
                     rect, edgePadding: padding, animated: false
@@ -601,14 +618,52 @@ extension MapCanvas {
             animateCamera { mapView.setRegion(region, animated: true) }
         }
 
-        /// `edgePadding` を省くと MKMapView は `layoutMargins`（＝セーフエリア）ぶん余白を取り、
-        /// 要求より 1 割ほど引いた画になる。ズームを厳密に合わせるため必ず .zero を渡す。
+        /// 署名を sheet の上へ逃がすために `layoutMargins.bottom` へ入れた
+        /// `MapCanvas.attributionBottomMargin` を、カメラ指令からだけ差し引いて返す。
+        ///
+        /// MKMapView にとって `layoutMargins` は「地図の論理視口はこの内側」という宣言で、
+        /// `setVisibleMapRect(_:edgePadding:)` はその論理視口をさらに `edgePadding` で
+        /// 狭めた枠に矩形を収める。**下辺だけ**同量を引けば枠は画面いっぱいに戻り、
+        /// 縮尺も中心も余白 0 のときと画素単位で一致する。
+        ///
+        /// 実測（harness の TYO ＝ z12 要求・iPhone 17 Pro・余白 80 で検証）：
+        /// 戻さないと z11.86。上下に半分ずつ分けて戻すと縮尺は z12.00 に直るが、枠の中心が
+        /// 余白の半分だけ上へ寄り、描画が丸ごと 40pt 上がる（余白 0 版との画素差分で確認）。
+        /// だから半分ずつではなく下辺で一括して戻す。
+        private static func compensatingMargin(_ padding: UIEdgeInsets = .zero) -> UIEdgeInsets {
+            var padding = padding
+            padding.bottom -= MapCanvas.attributionBottomMargin
+            return padding
+        }
+
+        /// `mapView.region` は上の論理視口（＝署名ぶんの余白を除いた帯）を指すので、そのまま
+        /// 外へ流すと中心が実際の画面中心より余白の半分だけ北にずれる。深リンクの `c=` と
+        /// 状態復元はこの値を保存して次回 `.center` で戻すため、放っておくと起動のたびに
+        /// 同じ量ずつ北へ流れていく。画面中心の座標を引き直し、緯度方向の span だけ余白ぶん
+        /// 伸ばして相殺する（左右の余白は 0 なので経度方向・ズームは元のままで正しい）。
+        private func fullBoundsRegion(of mapView: MKMapView) -> MKCoordinateRegion {
+            let height = mapView.bounds.height
+            let inner = height - MapCanvas.attributionBottomMargin
+            guard inner > 0 else { return mapView.region }
+            let span = mapView.region.span
+            return MKCoordinateRegion(
+                center: mapView.convert(
+                    CGPoint(x: mapView.bounds.midX, y: mapView.bounds.midY), toCoordinateFrom: mapView
+                ),
+                span: MKCoordinateSpan(
+                    latitudeDelta: min(span.latitudeDelta * Double(height / inner), 180),
+                    longitudeDelta: span.longitudeDelta
+                )
+            )
+        }
+
         private func move(to rect: MKMapRect, on mapView: MKMapView, animated: Bool) {
+            let padding = Self.compensatingMargin()
             guard animated else {
-                mapView.setVisibleMapRect(rect, edgePadding: .zero, animated: false)
+                mapView.setVisibleMapRect(rect, edgePadding: padding, animated: false)
                 return
             }
-            animateCamera { mapView.setVisibleMapRect(rect, edgePadding: .zero, animated: true) }
+            animateCamera { mapView.setVisibleMapRect(rect, edgePadding: padding, animated: true) }
         }
 
         /// MKMapView 既定のカメラ移動は 0.3 秒ほどで、Web 版の 1.2 秒より忙しない。

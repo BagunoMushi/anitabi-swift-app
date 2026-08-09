@@ -34,21 +34,25 @@ struct DroppedPinSheet: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
-                titleRow
-                if !nearestPoints.isEmpty {
-                    nearestSection
-                }
-                actionRow
-                if currentZoom < Self.preciseAddZoom {
-                    Text("放大地图后可精确添加")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                cardHeader
+                    // 最小档 96pt がちょうど標題行だけ見える高さ（PointCardSheet と同じ数値の理由）。
+                    .padding(.top, SheetMetrics.cardHeaderTopInset)
+                    .padding(.bottom, SheetMetrics.cardHeaderBottomSpacing)
+
+                VStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
+                    if !nearestPoints.isEmpty {
+                        nearestSection
+                    }
+                    actionRow
+                    if currentZoom < Self.preciseAddZoom {
+                        Text("放大地图后可精确添加")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .padding(.horizontal, SheetMetrics.horizontalPadding)
-            // 最小档 96pt がちょうど見出し行だけ見える高さ（PointCardSheet と同じ数値の理由）。
-            .padding(.top, SheetMetrics.topInset)
             .padding(.bottom, 24)
         }
         .sheet(item: $safariItem) { item in SafariSheet(url: item.url) }
@@ -60,21 +64,21 @@ struct DroppedPinSheet: View {
         .task { nearestPoints = await computeNearest() }
     }
 
-    // MARK: 1. 見出し行
+    // MARK: 1. 頭部（座標共有 ◯・地名・座標副題・✕）
 
-    private var titleRow: some View {
-        HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(titleText)
-                    .font(.title2.weight(.bold))
-                    .lineLimit(2)
-                Text(coordinateText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+    /// 作品カード・地標カードと同じ解剖（`CardHeader`）。
+    /// 反查が済むまでは標題そのものが座標なので、そのときだけ副題を伏せて同じ字の二度書きを避ける。
+    private var cardHeader: some View {
+        CardHeader(title: titleText, onClose: onClose) {
+            ShareLink(item: shareCoordinateText) {
+                CardHeaderCircleLabel(systemName: "square.and.arrow.up")
             }
-            Spacer(minLength: 8)
-            CardCloseButton(action: onClose)
-                .padding(.trailing, -7)
+            .buttonStyle(.plain)
+            .accessibilityLabel("分享坐标")
+        } subtitle: {
+            if titleText != coordinateText {
+                Text(coordinateText)
+            }
         }
     }
 
@@ -112,6 +116,7 @@ struct DroppedPinSheet: View {
 
     /// Google 导航を主（tint 填充）にする——常に押せる導線を主にし、条件付きで
     /// 禁止になり得る「在此添加地标」は次と同格の `.tertiarySystemFill` に留める。
+    /// 座標の共有は頭部の丸釦へ移したので、この行は 2 枚で幅を等分する。
     private var actionRow: some View {
         HStack(spacing: 8) {
             Button {
@@ -128,11 +133,6 @@ struct DroppedPinSheet: View {
             }
             .buttonStyle(ActionTileButtonStyle())
             .disabled(currentZoom < Self.preciseAddZoom)
-
-            ShareLink(item: shareCoordinateText) {
-                ActionTileLabel(systemImage: "square.and.arrow.up", title: "分享坐标")
-            }
-            .buttonStyle(ActionTileButtonStyle())
         }
     }
 

@@ -74,12 +74,97 @@ struct MapViewport: Sendable {
     }
 }
 
+// MARK: - Web スタイルの寸法表
+
+/// Web 版 Mapbox スタイルに書かれている「ズーム → 寸法」の逐字移植。
+///
+/// Mapbox GL の長さ単位は CSS px ＝ iOS の pt と 1:1 なので、値は換算せずそのまま使う
+/// （Retina かどうかは無関係。`pixelRatio: 2` で addImage された画像は、画素の半分の pt で出る）。
+enum MapMarkerMetrics {
+
+    /// Mapbox 旧式 `{base, stops}` の補間（指数）。
+    /// `v = v1 + (v2 - v1) × (base^(z-z1) - 1) / (base^(z2-z1) - 1)`。
+    /// 両端の外側では端の値で頭打ち（Mapbox と同じ）。
+    private static func interpolate(_ zoom: Double, base: Double, stops: [(z: Double, v: Double)]) -> Double {
+        guard let first = stops.first, let last = stops.last else { return 0 }
+        if zoom <= first.z { return first.v }
+        if zoom >= last.z { return last.v }
+        for index in 1..<stops.count where zoom <= stops[index].z {
+            let low = stops[index - 1]
+            let high = stops[index]
+            let ratio = (pow(base, zoom - low.z) - 1) / (pow(base, high.z - low.z) - 1)
+            return low.v + (high.v - low.v) * ratio
+        }
+        return last.v
+    }
+
+    /// Web `bangumi-point` 層の `circle-radius`（`docs/js/readable/4b970b29.js:1423-1430`
+    /// ＝ `{base: 1.75, stops: [[12,4],[18,8],[22,16]]}`）。返すのは**半径**。
+    static func dotRadius(zoom: Double) -> Double {
+        interpolate(zoom, base: 1.75, stops: [(12, 4), (18, 8), (22, 16)])
+    }
+
+    /// Web `bangumi-point` 層の `circle-stroke-width`（`4b970b29.js:1431-1438`
+    /// ＝ `{base: 1.75, stops: [[12,1.5],[18,3],[22,6]]}`）。
+    /// Mapbox の circle 描边は**半径の外側**に足されるので、見た目の直径は `2×(radius + stroke)`。
+    static func dotStrokeWidth(zoom: Double) -> Double {
+        interpolate(zoom, base: 1.75, stops: [(12, 1.5), (18, 3), (22, 6)])
+    }
+
+    /// Web `points-image` 層（ブラウズ時の大カード）の絵の寸法。
+    ///
+    /// 出処：`4b970b29.js:2364-2394` の canvas —— `width = 160`, `height = 120 + 14`,
+    /// 角は 4px の面取り、尾は底辺 28px・高さ 14px、`addImage(..., {pixelRatio: 2})`。
+    /// よって画面上は 1/2 の pt になる。`icon-anchor: "bottom"` ＋ `icon-offset: [0,-1]`。
+    enum PhotoCard {
+        static let bodySize = CGSize(width: 80, height: 60)
+        static let tailSize = CGSize(width: 14, height: 7)
+        static let cornerRadius: CGFloat = 2
+        /// 尾の先端が座標。さらに Web の `icon-offset: [0,-1]` ぶん 1pt 上げる。
+        static let anchorLift: CGFloat = 1
+        static var totalSize: CGSize {
+            CGSize(width: bodySize.width, height: bodySize.height + tailSize.height)
+        }
+    }
+
+    /// Web `bangumi-points-theme` 層（作品モードの小泡）の絵の寸法。
+    ///
+    /// 出処：`37476042.js:128-150` の canvas —— セルは `theme.w × theme.h`、
+    /// 高さは `h + 11 + 2`、`pixelRatio: 2`。既定値は 72×54 だが、**実データはほぼ全部 100×76**
+    /// （実測：`window.mapApp.bangumis` 1499 件中 theme 持ち 1019 件、うち 891 件が `100_76`、
+    /// 残り 128 件が w/h 未設定＝既定 72×54）。生成済みスプライトを直接読んで
+    /// `{w:100, h:89, pixelRatio:2}` を確認済みなので、100×76 の側を採る。
+    /// 枠線 2px・角丸 5.5px もスプライトに焼き込まれている（実測）。
+    enum PhotoBubble {
+        static let bodySize = CGSize(width: 50, height: 38)
+        static let cornerRadius: CGFloat = 3
+        /// テーマ色の枠（スプライトに焼かれた 2px ÷ 2）。
+        static let borderWidth: CGFloat = 1
+        /// テーマ色の滴（`ht` パス 22×11 ÷ 2）。
+        static let dripSize = CGSize(width: 11, height: 5.5)
+        /// 滴の上に載る、画像で塗られた三角（`pt` パス 18×12 ÷ 2）。上端は本体に 1.35pt 食い込む。
+        static let innerTailSize = CGSize(width: 9, height: 6)
+        static let innerTailOverlap: CGFloat = 1.35
+        /// canvas 全体（76 + 11 + 2）÷ 2。滴の先端より 1pt 下に余白がある。
+        static let totalSize = CGSize(width: 50, height: 44.5)
+    }
+
+    /// Web `bangumis` 層（作品標）の寸法（`4b970b29.js:1442-1469`）。
+    /// アイコンは `bangumi-icons` スプライトの 60×60 セルを `pixelRatio: 2` で載せるので 30pt
+    /// （`37476042.js:353-362` の `O = R = 60`）。文字は `text-size: 11` ＋ 白ハロー幅 1、
+    /// 位置は `text-anchor: "top"` ＋ `text-offset: [0, 0.8em]`。
+    enum WorkMarker {
+        static let iconSize: CGFloat = 30
+        static let textSize: CGFloat = 11
+    }
+}
+
 // MARK: - 揭示阶梯
 
 /// Web 版の揭示表をそのまま持つ。値は「最近傍までの距離（m）がこれを**超える**点／作品だけ出す」。
 enum MapRevealLadder {
 
-    /// 地標の閾値。z17 以上は 0 ＝ 全部出す。
+    /// 地標の閾値。Web `4b47e1ef.js`（`bangumi-point` の filter）の逐字移植。z17 以上は全部出す。
     static func pointThreshold(zoom: Double) -> Double {
         switch zoom {
         case ..<2: 60_000
@@ -98,11 +183,14 @@ enum MapRevealLadder {
         case ..<15: 10
         case ..<16: 5
         case ..<17: 3
-        default: 0
+        // Web は z17 以上で `true`＝全部。閾値は「超える」判定なので、priority 0（座標が完全に
+        // 重なっている点）まで拾えるよう -1 を返す。
+        default: -1
         }
     }
 
-    /// 作品標の閾値。z13 を超えたら nil ＝ 出さない（近接では地標が主役で、作品標は邪魔になる）。
+    /// 作品標の閾値。Web `bangumis` の filter（`4b970b29.js:1977-2007`）＋ `maxzoom: 13`。
+    /// z13 以上は nil ＝ 出さない（近接では地標が主役で、作品標は邪魔になる）。
     static func workThreshold(zoom: Double) -> Double? {
         switch zoom {
         case ..<2: 760_000
@@ -118,8 +206,48 @@ enum MapRevealLadder {
         case ..<10: 3_600
         case ..<11: 1_800
         case ..<12: 900
-        case ...13: 450
+        // Web は `maxzoom: 13`（`4b970b29.js:1445`）＝ z13 ちょうどから層ごと消える。
+        case ..<13: 450
         default: nil
+        }
+    }
+
+    // MARK: 劇照の揭示
+
+    /// ブラウズ時の大カード（Web `points-image`）が出るズーム。
+    /// `4b970b29.js:2325-2331`：`zoom <= 18` ではデータを毎回空にする＝**18 を超えたときだけ**出る。
+    static let photoCardZoom: Double = 18
+
+    /// 大カードの priority 閾値。`4b970b29.js:2333` の `Math.pow(2, 19 - o) * 3` そのまま
+    /// （点の priority ＝ 最近傍までの距離 m がこれ**以上**なら出す）。
+    /// z18.5→4.24m / z19→3m / z20→1.5m / z21→0.75m。
+    static func photoCardPriorityThreshold(zoom: Double) -> Double {
+        3 * pow(2, 19 - zoom)
+    }
+
+    /// 作品モードの小泡（Web `bangumi-points-theme`）の揭示阶梯。
+    /// `37476042.js:254-292` の `["step", ["zoom"], ...]` を逐字移植。値は m。
+    /// 層の `maxzoom: 18` なので z18 以上は本来描かれない（そこは大カードが引き継ぐ）。
+    static func photoBubbleThreshold(zoom: Double) -> Double {
+        switch zoom {
+        case ..<3: 48_000
+        case ..<4: 24_000
+        case ..<5: 12_000
+        case ..<6: 6_000
+        case ..<7: 3_000
+        case ..<8: 1_600
+        case ..<9: 800
+        case ..<10: 400
+        case ..<11: 200
+        case ..<12: 100
+        case ..<13: 50
+        case ..<14: 20
+        case ..<15: 10
+        case ..<16: 5
+        case ..<17: 3
+        case ..<18: 2
+        case ..<19: 1
+        default: 0
         }
     }
 
@@ -149,13 +277,23 @@ struct MapEngineRequest: Sendable {
 
     /// 保険上限。ここを超えると描画コストではなく**画面の情報密度**が破綻する。
     var pointLimit = 600
-    var photoLimit = 48
+    /// Web の 2 層（`points-image` / `bangumi-points-theme`）には枚数上限が無く、
+    /// 揭示阶梯と priority 閾値だけで疎になる。こちらはテクスチャ枚数の保険として置くだけなので、
+    /// 阶梯が効いている限り当たらない値にする（実測：池袋 z18.6 の大カードで 37 枚、
+    /// ユーフォ z13 の小泡で 84 枚）。
+    var photoLimit = 120
     var workLimit = 32
 }
 
 struct MapPointPlan: Sendable {
     let point: ScenePoint
-    /// 劇照サムネイル形態で出すか（z≥16.5・画像あり・レイヤー ON・上位 48 件）。
+    /// 劇照サムネイル形態で出すか。
+    ///
+    /// 判定は Web の 2 層をそのまま合成したもの（`MapEngine.photoForms`）：
+    /// - z > 18 ＝ `points-image`（大カード）。画像あり ＋ `priority ≥ 3·2^(19−z)`。
+    /// - z ≤ 18 かつ作品モード ＝ `bangumi-points-theme`（小泡）。作品内で測り直した
+    ///   最近傍距離が揭示阶梯を超えるもの。
+    /// どちらの絵で描くかは `PointMarkerView` がズームから決める（Web の層分けと同じ境目 z18）。
     let usesPhoto: Bool
 }
 
@@ -170,9 +308,6 @@ struct MapEngineFrame: Sendable {
 // MARK: - エンジン
 
 actor MapEngine {
-
-    /// 劇照サムネイルに切り替わるズーム。
-    static let photoFormZoom: Double = 16.5
 
     private var points: [ScenePoint] = []
     private var works: [MapWorkSeed] = []
@@ -193,6 +328,10 @@ actor MapEngine {
     private var indicesByWork: [Int: [Int32]] = [:]
     /// 地標 ID → 添字。選択中の点を毎フレーム線形探索しないため。
     private var indexByID: [String: Int32] = [:]
+
+    /// 作品モードの小泡用に測り直した priority のキャッシュ（作品 ID 集合ごと）。
+    /// O(n²) なので選択が変わったときだけ計算する。
+    private var themePriorityCache: (works: Set<Int>, values: [String: Int])?
 
     // MARK: 索引構築
 
@@ -224,6 +363,7 @@ actor MapEngine {
         grid = newGrid
         indicesByWork = byWork
         indexByID = byID
+        themePriorityCache = nil
     }
 
     // MARK: フレーム計算
@@ -242,7 +382,7 @@ actor MapEngine {
             ? ladderPoints(request: request)
             : filteredPoints(workIDs: filterIDs!, viewport: request.viewport, limit: request.pointLimit)
 
-        var plans = photoForms(for: selected, request: request)
+        var plans = photoForms(for: selected, request: request, filterIDs: filterIDs)
 
         // 選択中の点は絶対に消さない（カードが開いたまま標注だけ消えるのを防ぐ）。
         if let selectedID = request.selectedPointID,
@@ -362,24 +502,103 @@ actor MapEngine {
 
     // MARK: 形態の割り当て
 
-    /// 劇照サムネイルにできるのは上位 48 件まで。残りは主題点へ落とす（テクスチャ枚数の保険）。
-    private func photoForms(for selected: [ScenePoint], request: MapEngineRequest) -> [MapPointPlan] {
-        guard request.isPhotoLayerVisible, request.zoom >= Self.photoFormZoom else {
+    /// 「どの点を劇照で出すか」を Web の 2 層そのままに決める。
+    ///
+    /// Web には劇照の層が 2 枚あり、**z18 でバトンを渡す**：
+    ///
+    /// | 層 | ズーム | 出す条件 | 絵 |
+    /// |---|---|---|---|
+    /// | `points-image`（`4b970b29.js:2322-2398`） | `z > 18` のみ（18 以下はデータを毎回空にする） | 画像あり ＋ `priority ≥ 3·2^(19−z)` | 80×60pt ＋ 尾 7pt |
+    /// | `bangumi-points-theme`（`37476042.js:236-303`） | `maxzoom: 18` ＝ z18 未満。かつ**作品を選んでいるときだけ**（ブラウズ中は `J()` で空にされる） | 揭示阶梯（作品内で測り直した最近傍距離 m） | 50×38pt ＋ 尾 6.5pt |
+    ///
+    /// つまり **ブラウズ中に z≤18 で劇照は 1 枚も出ない**。以前の実装の z≥16.5 は根拠が無かった。
+    ///
+    /// z18 ちょうどは Web だとどちらの層も出ない（`<= 18` と `maxzoom: 18` の隙間）が、
+    /// 深リンクで z=18.0 に着地したときに劇照が消える方が事故なので、こちらは小泡側に寄せる。
+    private func photoForms(
+        for selected: [ScenePoint],
+        request: MapEngineRequest,
+        filterIDs: Set<Int>?
+    ) -> [MapPointPlan] {
+        guard request.isPhotoLayerVisible else {
             return selected.map { MapPointPlan(point: $0, usesPhoto: false) }
         }
-        let withImage = selected.enumerated().filter { $0.element.image != nil }
-        guard !withImage.isEmpty else {
+
+        var eligible: [(offset: Int, rank: Int)] = []
+        if request.zoom > MapRevealLadder.photoCardZoom {
+            // `points-image` 相当。作品モードでもここは同じ（Web も z>18 では大カードに合流する）。
+            let threshold = MapRevealLadder.photoCardPriorityThreshold(zoom: request.zoom)
+            for (offset, point) in selected.enumerated()
+            where point.image != nil && Double(point.priority) >= threshold {
+                eligible.append((offset, point.priority))
+            }
+        } else if let filterIDs {
+            // `bangumi-points-theme` 相当。作品を選んでいるときだけ。
+            let threshold = MapRevealLadder.photoBubbleThreshold(zoom: request.zoom)
+            let priorities = themePriorities(for: filterIDs)
+            for (offset, point) in selected.enumerated() where point.image != nil {
+                guard let rank = priorities[point.id], Double(rank) > threshold else { continue }
+                eligible.append((offset, rank))
+            }
+        }
+
+        guard !eligible.isEmpty else {
             return selected.map { MapPointPlan(point: $0, usesPhoto: false) }
         }
-        let promoted = Set(
-            withImage
-                .sorted { $0.element.priority > $1.element.priority }
-                .prefix(request.photoLimit)
-                .map(\.offset)
-        )
+        if eligible.count > request.photoLimit {
+            eligible.sort { $0.rank > $1.rank }
+            eligible = Array(eligible.prefix(request.photoLimit))
+        }
+        let promoted = Set(eligible.map(\.offset))
         return selected.enumerated().map {
             MapPointPlan(point: $0.element, usesPhoto: promoted.contains($0.offset))
         }
+    }
+
+    /// 小泡の間引きに使う priority を、Web の `A()`（`37476042.js:110-127`）どおりに測り直す。
+    ///
+    /// 大事なのは「点が元から持っている priority（＝全 5 万点の中での最近傍距離）ではない」こと。
+    /// 作品モードでは**その作品の画像点だけ**を対象に取り直すので、同じ点でも値がぐっと大きくなり、
+    /// 広域でも数十枚は残る。Web の手順は：
+    /// 1. 画像点を緯度の降順に並べる
+    /// 2. 末尾（南）から順に、それまでに見た点までの最短距離を測る（度のユークリッド距離、
+    ///    経度の cos 補正はしない）
+    /// 3. `ceil(距離 × 111000)` を priority にする。最初の 1 点だけは 99999（度）＝ 事実上無限大
+    private func themePriorities(for workIDs: Set<Int>) -> [String: Int] {
+        if let cache = themePriorityCache, cache.works == workIDs { return cache.values }
+
+        var seeds: [(id: String, lat: Double, lng: Double)] = []
+        for workID in workIDs.sorted() {
+            guard let indices = indicesByWork[workID] else { continue }
+            for index in indices {
+                let point = points[Int(index)]
+                guard point.image != nil else { continue }
+                seeds.append((point.id, point.lat, point.lng))
+            }
+        }
+        seeds.sort { $0.lat > $1.lat }
+
+        var values: [String: Int] = [:]
+        values.reserveCapacity(seeds.count)
+        var seenLat: [Double] = []
+        var seenLng: [Double] = []
+        seenLat.reserveCapacity(seeds.count)
+        seenLng.reserveCapacity(seeds.count)
+        for seed in seeds.reversed() {
+            var nearest = 99_999.0
+            for index in seenLat.indices {
+                let dx = seed.lng - seenLng[index]
+                let dy = seed.lat - seenLat[index]
+                let distance = (dx * dx + dy * dy).squareRoot()
+                if distance < nearest { nearest = distance }
+            }
+            seenLat.append(seed.lat)
+            seenLng.append(seed.lng)
+            values[seed.id] = Int((nearest * 111_000).rounded(.up))
+        }
+
+        themePriorityCache = (workIDs, values)
+        return values
     }
 
     // MARK: 作品標
@@ -415,8 +634,8 @@ actor MapEngine {
     ) -> [MapWorkSeed] {
         let pointsPerLng = 256 * pow(2, zoom) / 360
         let pointsPerLat = pointsPerLng / max(cos(centerLatitude * .pi / 180), 0.01)
-        // 22pt のカバー ＋ 最大 92pt のラベル。余白込みで確保する。
-        let box = CGSize(width: 100, height: 46)
+        // 30pt のカバー（Web `bangumis` のスプライト 60×60@2x）＋ 最大 92pt のラベル。余白込み。
+        let box = CGSize(width: 100, height: 54)
 
         var placed: [CGRect] = []
         var result: [MapWorkSeed] = []

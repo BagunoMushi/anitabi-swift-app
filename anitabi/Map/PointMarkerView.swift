@@ -25,7 +25,11 @@ final class PointMarkerView: MKAnnotationView {
     private var balloonBody: BalloonMarkerBody?
 
     private var form: PointMarkerForm = .dot
-    private var diameter: CGFloat = 9
+    /// Web `circle-radius` ×2 ＝ 色が付いている部分の直径。
+    private var dotCore: CGFloat = 8
+    /// Web `circle-stroke-width`。Mapbox と同じく**外側**に足す白描边。
+    private var dotStroke: CGFloat = 1.5
+    private var photoStyle: PhotoMarkerBody.Style = .bubble
     private var imageURL: URL?
 
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
@@ -61,9 +65,12 @@ final class PointMarkerView: MKAnnotationView {
     // MARK: 構成
 
     func configure(with annotation: ScenePointAnnotation, zoom: Double, animated: Bool) {
-        diameter = Self.dotDiameter(zoom: zoom)
+        dotCore = CGFloat(MapMarkerMetrics.dotRadius(zoom: zoom)) * 2
+        dotStroke = CGFloat(MapMarkerMetrics.dotStrokeWidth(zoom: zoom))
+        photoStyle = Self.photoStyle(zoom: zoom)
         dotBody.apply(
-            diameter: diameter,
+            core: dotCore,
+            stroke: dotStroke,
             color: annotation.themeColor,
             innerOutline: annotation.needsInnerOutline
         )
@@ -71,24 +78,46 @@ final class PointMarkerView: MKAnnotationView {
     }
 
     /// ズームだけが変わったときの軽い更新（形態はそのまま）。
+    /// 主題点の寸法だけでなく、劇照の絵（小泡 ⇄ 大カード）も z18 で入れ替わる。
     func updateZoom(_ zoom: Double, animated: Bool) {
-        let next = Self.dotDiameter(zoom: zoom)
-        guard abs(next - diameter) > 0.4 else { return }
-        diameter = next
-        dotBody.resize(diameter: next)
-        guard form == .dot else { return }
-        let apply = { self.applyGeometry(size: CGSize(width: next, height: next), offset: .zero) }
-        if animated {
-            UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState], animations: apply)
-        } else {
-            apply()
+        let core = CGFloat(MapMarkerMetrics.dotRadius(zoom: zoom)) * 2
+        let stroke = CGFloat(MapMarkerMetrics.dotStrokeWidth(zoom: zoom))
+        let style = Self.photoStyle(zoom: zoom)
+        let dotChanged = abs(core - dotCore) > 0.3 || abs(stroke - dotStroke) > 0.15
+        let styleChanged = style != photoStyle
+        guard dotChanged || styleChanged else { return }
+
+        dotCore = core
+        dotStroke = stroke
+        photoStyle = style
+        if dotChanged { dotBody.resize(core: core, stroke: stroke) }
+
+        switch form {
+        case .dot where dotChanged:
+            let side = core + stroke * 2
+            let apply = { self.applyGeometry(size: CGSize(width: side, height: side), offset: .zero) }
+            if animated {
+                UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState], animations: apply)
+            } else {
+                apply()
+            }
+        case .photo where styleChanged:
+            guard let annotation = annotation as? ScenePointAnnotation else { return }
+            let apply = { self.applyPhotoGeometry(annotation: annotation) }
+            if animated {
+                UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState], animations: apply)
+            } else {
+                apply()
+            }
+        default:
+            break
         }
     }
 
-    /// z≤12 で 9pt、z≥17 で 18pt。間は線形 ―― 縮尺が上がるほど点が「地面の物」に見えてくる。
-    static func dotDiameter(zoom: Double) -> CGFloat {
-        let clamped = min(max(zoom, 12), 17)
-        return 9 + CGFloat(clamped - 12) / 5 * 9
+    /// 劇照をどちらの絵で描くか。Web で層が入れ替わる境目（`points-image` は z>18 のみ、
+    /// `bangumi-points-theme` は `maxzoom: 18`）と同じ 18 で切り替える。
+    private static func photoStyle(zoom: Double) -> PhotoMarkerBody.Style {
+        zoom > MapRevealLadder.photoCardZoom ? .card : .bubble
     }
 
     // MARK: 形態
@@ -99,14 +128,15 @@ final class PointMarkerView: MKAnnotationView {
 
         switch next {
         case .dot:
-            applyGeometry(size: CGSize(width: diameter, height: diameter), offset: .zero)
+            let side = dotCore + dotStroke * 2
+            applyGeometry(size: CGSize(width: side, height: side), offset: .zero)
             collisionMode = .circle
             displayPriority = annotation.displayPriority
             zPriority = .min
             show(dotBody, hiding: [photoBody, balloonBody], changed: previous != next, animated: animated)
 
         case .photo:
-            applyGeometry(size: PhotoMarkerBody.size, offset: PhotoMarkerBody.centerOffset)
+            applyPhotoGeometry(annotation: annotation)
             collisionMode = .rectangle
             displayPriority = annotation.displayPriority
             zPriority = .defaultUnselected
@@ -115,7 +145,6 @@ final class PointMarkerView: MKAnnotationView {
                 photoBody = created
                 return created
             }()
-            body.placeholderColor = annotation.themeColor
             loadImage(for: annotation) { [weak body] in body?.setImage($0) }
             show(body, hiding: [dotBody, balloonBody], changed: previous != next, animated: animated)
 
@@ -183,6 +212,18 @@ final class PointMarkerView: MKAnnotationView {
         }
     }
 
+    /// 劇照の絵を今のズームの様式に合わせる（枠色とサイズ、尾の先端＝座標）。
+    private func applyPhotoGeometry(annotation: ScenePointAnnotation) {
+        let body = photoBody ?? {
+            let created = PhotoMarkerBody()
+            photoBody = created
+            return created
+        }()
+        body.apply(style: photoStyle, themeColor: annotation.themeColor)
+        applyGeometry(size: body.bounds.size, offset: body.markerCenterOffset)
+        body.center = CGPoint(x: bounds.midX, y: bounds.midY)
+    }
+
     /// `bounds` と `centerOffset` を同時に差し替える。`centerOffset` の変化ぶんは MapKit が
     /// 次に再配置するまで反映されないため、自分で `center` を動かして即座に辻褄を合わせる。
     private func applyGeometry(size: CGSize, offset: CGPoint) {
@@ -216,6 +257,12 @@ final class PointMarkerView: MKAnnotationView {
 
 // MARK: - 主題点
 
+/// Web `bangumi-point`（circle 層）等価物。
+///
+/// Mapbox の circle は「半径 r の塗り」の**外側**に `circle-stroke-width` を足すので、
+/// ビューの一辺は `2r + 2×stroke`、白描边は UIView の border（内側に描かれる）でそのまま作れる
+/// ——残る塗り部分の直径がちょうど `2r` になる。
+/// 影は付けない（Web の circle 層には影が無い。白描边だけで地図から浮く）。
 private final class DotMarkerBody: UIView {
     private let innerOutline = CALayer()
 
@@ -223,10 +270,6 @@ private final class DotMarkerBody: UIView {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         layer.borderColor = UIColor.white.cgColor
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.18
-        layer.shadowRadius = 1.5
-        layer.shadowOffset = CGSize(width: 0, height: 0.5)
         innerOutline.borderColor = UIColor.black.withAlphaComponent(0.22).cgColor
         innerOutline.borderWidth = 0.5
         innerOutline.isHidden = true
@@ -236,22 +279,24 @@ private final class DotMarkerBody: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func apply(diameter: CGFloat, color: UIColor, innerOutline hasOutline: Bool) {
+    func apply(core: CGFloat, stroke: CGFloat, color: UIColor, innerOutline hasOutline: Bool) {
         backgroundColor = color
         innerOutline.isHidden = !hasOutline
-        resize(diameter: diameter)
+        resize(core: core, stroke: stroke)
     }
 
-    func resize(diameter: CGFloat) {
-        bounds = CGRect(x: 0, y: 0, width: diameter, height: diameter)
-        layer.cornerRadius = diameter / 2
-        layer.borderWidth = diameter >= 14 ? 2 : 1.5
-        layer.shadowPath = UIBezierPath(ovalIn: bounds).cgPath
+    /// - Parameters:
+    ///   - core: 色が付いている部分の直径（Web の `circle-radius` ×2）。
+    ///   - stroke: 白描边の太さ（Web の `circle-stroke-width`）。
+    func resize(core: CGFloat, stroke: CGFloat) {
+        let side = core + stroke * 2
+        bounds = CGRect(x: 0, y: 0, width: side, height: side)
+        layer.cornerRadius = side / 2
+        layer.borderWidth = stroke
 
-        let inset = layer.borderWidth
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        innerOutline.frame = bounds.insetBy(dx: inset, dy: inset)
+        innerOutline.frame = bounds.insetBy(dx: stroke, dy: stroke)
         innerOutline.cornerRadius = max(innerOutline.bounds.width, 0) / 2
         CATransaction.commit()
     }
@@ -259,52 +304,77 @@ private final class DotMarkerBody: UIView {
 
 // MARK: - 劇照サムネイル標
 
+/// Web の劇照 2 層の等価物。ズームで様式だけを差し替える（ビューは作り直さない）。
+///
+/// - `.card` ＝ `points-image` 層（`4b970b29.js:2364-2394`）。160×134px の canvas を
+///   `pixelRatio: 2` で載せるので画面上は 80×67pt。枠も影も無く、**尾まで画像で塗られる**
+///   （clip パスに尾が含まれていて、そこへ画像をそのまま描いている）。
+/// - `.bubble` ＝ `bangumi-points-theme` 層（`37476042.js:139-190`）。100×89px ÷2 ＝ 50×44.5pt。
+///   作品色の 1pt 枠と、その下に作品色の滴、滴の上に画像で塗られた小三角が乗る。
 private final class PhotoMarkerBody: UIView {
-    /// 劇照 64×40 ＋ 白描边 2 ＋ 下縁の指針尾 8×6。
-    static let size = CGSize(width: 68, height: 50)
-    /// 尾の先端が座標。ビューの中心はそのぶん上に置く。
-    static let centerOffset = CGPoint(x: 0, y: -size.height / 2)
 
-    private let plate = CAShapeLayer()
-    private let imageLayer = CALayer()
+    enum Style { case card, bubble }
+
+    private let frameLayer = CAShapeLayer()
+    private let contentLayer = CALayer()
+    private let contentMask = CAShapeLayer()
     private let placeholder = CAGradientLayer()
+    private let imageLayer = CALayer()
 
-    var placeholderColor: UIColor = .anitabiNeutralTheme {
-        didSet { applyPlaceholder() }
+    private var style: Style?
+    private var themeColor: UIColor = .anitabiNeutralTheme
+
+    /// 尾の先端が座標。ビューの中心はそのぶん上に置く。
+    var markerCenterOffset: CGPoint {
+        switch style ?? .bubble {
+        case .card:
+            // Web の `icon-offset: [0,-1]` ぶんさらに 1pt 上げる。
+            CGPoint(x: 0, y: -bounds.height / 2 - MapMarkerMetrics.PhotoCard.anchorLift)
+        case .bubble:
+            CGPoint(x: 0, y: -bounds.height / 2)
+        }
     }
 
     override init(frame: CGRect) {
-        super.init(frame: CGRect(origin: .zero, size: Self.size))
+        super.init(frame: .zero)
         isUserInteractionEnabled = false
 
-        let path = Self.platePath()
-        plate.path = path.cgPath
-        plate.fillColor = UIColor.white.cgColor
-        plate.shadowColor = UIColor.black.cgColor
-        plate.shadowOpacity = 0.22
-        plate.shadowRadius = 4
-        plate.shadowOffset = CGSize(width: 0, height: 2)
-        plate.shadowPath = path.cgPath
-        plate.frame = bounds
-        layer.addSublayer(plate)
+        frameLayer.fillColor = UIColor.clear.cgColor
+        layer.addSublayer(frameLayer)
 
-        let photoRect = CGRect(x: 2, y: 2, width: 64, height: 40)
-        placeholder.frame = photoRect
-        placeholder.cornerRadius = 8
         placeholder.startPoint = CGPoint(x: 0, y: 0)
         placeholder.endPoint = CGPoint(x: 1, y: 1)
-        layer.addSublayer(placeholder)
+        contentLayer.addSublayer(placeholder)
 
-        imageLayer.frame = photoRect
-        imageLayer.cornerRadius = 8
-        imageLayer.masksToBounds = true
         imageLayer.contentsGravity = .resizeAspectFill
-        layer.addSublayer(imageLayer)
-        applyPlaceholder()
+        imageLayer.masksToBounds = true
+        contentLayer.addSublayer(imageLayer)
+
+        contentLayer.mask = contentMask
+        layer.addSublayer(contentLayer)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func apply(style newStyle: Style, themeColor color: UIColor) {
+        let colorChanged = color != themeColor
+        themeColor = color
+        guard newStyle != style || colorChanged else { return }
+        style = newStyle
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        switch newStyle {
+        case .card: layOutCard()
+        case .bubble: layOutBubble()
+        }
+        placeholder.colors = [
+            themeColor.cgColor,
+            themeColor.mixed(with: .black, amount: 0.28).cgColor,
+        ]
+        CATransaction.commit()
+    }
 
     func setImage(_ image: UIImage?) {
         CATransaction.begin()
@@ -314,25 +384,69 @@ private final class PhotoMarkerBody: UIView {
         CATransaction.commit()
     }
 
-    private func applyPlaceholder() {
-        placeholder.colors = [
-            placeholderColor.cgColor,
-            placeholderColor.mixed(with: .black, amount: 0.28).cgColor,
-        ]
+    // MARK: 様式
+
+    private func layOutCard() {
+        typealias Metrics = MapMarkerMetrics.PhotoCard
+        bounds = CGRect(origin: .zero, size: Metrics.totalSize)
+
+        frameLayer.isHidden = true
+        contentLayer.frame = bounds
+        placeholder.frame = bounds
+        imageLayer.frame = bounds
+        contentMask.frame = bounds
+        contentMask.path = Self.plate(
+            body: CGRect(origin: .zero, size: Metrics.bodySize),
+            cornerRadius: Metrics.cornerRadius,
+            tail: Metrics.tailSize,
+            tailTopOverlap: 0.5
+        ).cgPath
     }
 
-    /// 板と尾を 1 本のパスにする（別レイヤーにすると継ぎ目に白線が出る）。
-    private static func platePath() -> UIBezierPath {
-        let path = UIBezierPath(
-            roundedRect: CGRect(x: 0, y: 0, width: 68, height: 44),
-            cornerRadius: 9
-        )
-        let tail = UIBezierPath()
-        tail.move(to: CGPoint(x: 30, y: 42))
-        tail.addLine(to: CGPoint(x: 38, y: 42))
-        tail.addLine(to: CGPoint(x: 34, y: 50))
-        tail.close()
-        path.append(tail)
+    private func layOutBubble() {
+        typealias Metrics = MapMarkerMetrics.PhotoBubble
+        bounds = CGRect(origin: .zero, size: Metrics.totalSize)
+
+        let body = CGRect(origin: .zero, size: Metrics.bodySize)
+        frameLayer.isHidden = false
+        frameLayer.frame = bounds
+        frameLayer.fillColor = themeColor.cgColor
+        frameLayer.path = Self.plate(
+            body: body,
+            cornerRadius: Metrics.cornerRadius,
+            tail: Metrics.dripSize,
+            tailTopOverlap: 0.5
+        ).cgPath
+
+        let inset = Metrics.borderWidth
+        let inner = body.insetBy(dx: inset, dy: inset)
+        contentLayer.frame = bounds
+        placeholder.frame = inner
+        imageLayer.frame = inner
+        contentMask.frame = bounds
+        contentMask.path = Self.plate(
+            body: inner,
+            cornerRadius: Metrics.cornerRadius - inset,
+            tail: Metrics.innerTailSize,
+            tailTopOverlap: Metrics.innerTailOverlap - inset
+        ).cgPath
+    }
+
+    /// 本体（角丸矩形）と下縁の尾を 1 本のパスにする。別レイヤーに分けると継ぎ目に線が出る。
+    private static func plate(
+        body: CGRect,
+        cornerRadius: CGFloat,
+        tail: CGSize,
+        tailTopOverlap: CGFloat
+    ) -> UIBezierPath {
+        let path = UIBezierPath(roundedRect: body, cornerRadius: max(cornerRadius, 0))
+        let top = body.maxY - tailTopOverlap
+        let tailPath = UIBezierPath()
+        tailPath.move(to: CGPoint(x: body.midX - tail.width / 2, y: top))
+        tailPath.addLine(to: CGPoint(x: body.midX + tail.width / 2, y: top))
+        tailPath.addLine(to: CGPoint(x: body.midX, y: body.maxY + tail.height))
+        tailPath.close()
+        path.append(tailPath)
         return path
     }
 }

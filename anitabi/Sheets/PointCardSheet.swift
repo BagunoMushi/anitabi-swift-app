@@ -61,28 +61,31 @@ struct PointCardSheet: View {
     var body: some View {
         ScrollView {
             if let point {
-                VStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
-                    titleRow(point)
-                    subtitleRow(point)
-                    if point.needsEtiquetteWarning {
-                        etiquetteChip
+                VStack(alignment: .leading, spacing: 0) {
+                    cardHeader(point)
+                        // 最小档 96pt がちょうど頭部の標題行だけ見える高さ。この上余白込みの数値。
+                        .padding(.top, SheetMetrics.cardHeaderTopInset)
+                        .padding(.bottom, SheetMetrics.cardHeaderBottomSpacing)
+
+                    VStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
+                        if point.needsEtiquetteWarning {
+                            etiquetteChip
+                        }
+                        if cardImageURL != nil {
+                            screenshotCard(point)
+                        } else {
+                            missingScreenshotCard(point)
+                        }
+                        actionRow(point)
+                        if let note = point.note?.nilIfBlank {
+                            Text(note)
+                                .font(.body)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        sourceRow(point)
                     }
-                    if cardImageURL != nil {
-                        screenshotCard(point)
-                    } else {
-                        missingScreenshotCard(point)
-                    }
-                    actionRow(point)
-                    if let note = point.note?.nilIfBlank {
-                        Text(note)
-                            .font(.body)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    sourceRow(point)
                 }
                 .padding(.horizontal, SheetMetrics.horizontalPadding)
-                // 最小档 96pt がちょうど見出し行だけ見える高さ。この上余白込みの数値。
-                .padding(.top, SheetMetrics.topInset)
                 .padding(.bottom, 24)
             }
         }
@@ -102,34 +105,31 @@ struct PointCardSheet: View {
         }
     }
 
-    // MARK: - 1. 見出し行
+    // MARK: - 1-2. 頭部（共有 ◯・点名・副題・✕）
 
-    private func titleRow(_ point: ScenePoint) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            Text(point.displayName.nilIfBlank ?? String(localized: "巡礼点"))
-                .font(.title2.weight(.bold))
-                .lineLimit(2)
-            Spacer(minLength: 8)
-            // 丸釦 2 つは当たり判定 44pt ぶん外へ膨らんでいる。間隔 0 で見た目 14pt、
-            // 右端は −7 で 15pt の内容余白に戻す。
-            moreMenu(point)
-            CardCloseButton(action: onClose)
-                .padding(.trailing, -7)
-        }
-    }
-
-    // MARK: - 2. 副題行
-
-    private func subtitleRow(_ point: ScenePoint) -> some View {
-        HStack(spacing: 6) {
-            workChip
-            if !metaText(point).isEmpty {
-                Text(metaText(point))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+    /// 上に重なる作品カードと**同じ解剖**にする（`CardHeader`）。
+    /// 元は右上に居た ⋯ メニューは動作排の 4 枚目へ降ろした——頭部の丸釦は左右 1 個ずつだけ。
+    private func cardHeader(_ point: ScenePoint) -> some View {
+        CardHeader(
+            title: point.displayName.nilIfBlank ?? String(localized: "巡礼点"),
+            onClose: onClose
+        ) {
+            ShareLink(
+                item: shareURL(point),
+                subject: Text(shareTitle(point)),
+                message: Text(shareTitle(point))
+            ) {
+                CardHeaderCircleLabel(systemName: "square.and.arrow.up")
             }
-            Spacer(minLength: 0)
+            .buttonStyle(.plain)
+            .accessibilityLabel("分享")
+        } subtitle: {
+            HStack(spacing: 6) {
+                workChip
+                if !metaText(point).isEmpty {
+                    Text(metaText(point))
+                }
+            }
         }
     }
 
@@ -289,7 +289,9 @@ struct PointCardSheet: View {
 
     /// Apple マップの地点カードと同じ動作排 —— 行幅を等分した角丸タイル、総高 51pt
     /// （icon 上・`.footnote` 13pt ラベル下）。剧照がある点は 4 枚で 1 枚 ≈83pt、
-    /// 無い点は 3 枚で等分される。主（做对比图）だけ tint 填充で、残りは `.tertiarySystemFill`。
+    /// 無い点（＝補充を促すカードを出す点）は 3 枚で等分される。
+    /// 共有は頭部の丸釦へ、⋯ メニューはこの行の末尾（「更多」）へ移した。
+    /// 主（做对比图）だけ tint 填充で、残りは `.tertiarySystemFill`。
     private func actionRow(_ point: ScenePoint) -> some View {
         HStack(spacing: 8) {
             if let photoURL = originalImageURL {
@@ -315,10 +317,7 @@ struct PointCardSheet: View {
             }
             .buttonStyle(ActionTileButtonStyle())
 
-            ShareLink(item: shareURL(point), subject: Text(shareTitle(point)), message: Text(shareTitle(point))) {
-                ActionTileLabel(systemImage: "square.and.arrow.up", title: "分享")
-            }
-            .buttonStyle(ActionTileButtonStyle())
+            moreMenu(point)
         }
     }
 
@@ -392,8 +391,9 @@ struct PointCardSheet: View {
         return nil
     }
 
-    // MARK: - 8. ⋯メニュー
+    // MARK: - 8. 「更多」メニュー（動作排の末尾タイル）
 
+    /// 中身は頭部に居たときと同じ 4 項目。器だけ丸釦から動作排のタイルへ差し替えた。
     private func moreMenu(_ point: ScenePoint) -> some View {
         Menu {
             Button("补传截图", systemImage: "photo.badge.plus") {
@@ -414,10 +414,9 @@ struct PointCardSheet: View {
                 router.toast.show(String(localized: "已拷贝坐标"), symbol: "doc.on.doc")
             }
         } label: {
-            CircularGlyphLabel(systemName: "ellipsis")
+            ActionTileLabel(systemImage: "ellipsis", title: "更多")
         }
-        // Menu は既定で中身を tint 色に塗るので、灰の記号に戻す（✕ 釦と揃える）。
-        .tint(Color.secondary)
+        .buttonStyle(ActionTileButtonStyle())
         .accessibilityLabel("更多")
     }
 

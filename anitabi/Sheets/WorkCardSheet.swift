@@ -57,26 +57,30 @@ struct WorkCardSheet: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
-                titleSection
-                headerCard
-                actionRow
-                if showsGroupingControls {
-                    groupingControlsRow
+            VStack(alignment: .leading, spacing: 0) {
+                cardHeader
+                    // grabber と標題がぶつからない分の余白。最小档 128pt はこの頭部ぶん。
+                    .padding(.top, SheetMetrics.cardHeaderTopInset)
+                    .padding(.bottom, SheetMetrics.cardHeaderBottomSpacing)
+
+                LazyVStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
+                    headerCard
+                    actionRow
+                    if showsGroupingControls {
+                        groupingControlsRow
+                    }
+                    WorkPointList(
+                        store: store,
+                        groups: groups,
+                        showsHeaders: showsGroupingControls,
+                        collapsedGroupIDs: $collapsedGroupIDs,
+                        selectedPointID: selectedPointID,
+                        onSelectPoint: onSelectPoint
+                    )
+                    footerCard
                 }
-                WorkPointList(
-                    store: store,
-                    groups: groups,
-                    showsHeaders: showsGroupingControls,
-                    collapsedGroupIDs: $collapsedGroupIDs,
-                    selectedPointID: selectedPointID,
-                    onSelectPoint: onSelectPoint
-                )
-                footerCard
             }
             .padding(.horizontal, SheetMetrics.horizontalPadding)
-            // grabber と見出しがぶつからない分の余白。最小档 128pt はこの見出し 2 行ぶん。
-            .padding(.top, SheetMetrics.topInset)
             .padding(.bottom, 24)
         }
         .onAppear { resetCollapseState() }
@@ -84,25 +88,21 @@ struct WorkCardSheet: View {
         .sheet(item: $safariItem) { item in SafariSheet(url: item.url) }
     }
 
-    // MARK: 1-2. 見出し・副題
+    // MARK: 1-2. 頭部（共有 ◯・標題・副題・✕）
 
-    private var titleSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
-                Text(store.name(forBangumi: workID))
-                    .font(.title2.weight(.bold))
-                    .lineLimit(2)
-                Spacer(minLength: 0)
-                // 丸釦は当たり判定 44pt ぶん外へ膨らんでいるので、右端を 15pt に戻す。
-                CardCloseButton(action: onClose)
-                    .padding(.trailing, -7)
+    /// 解剖は `CardHeader` 側に集約。ここは中身（共有する URL と副題の組み立て）だけを渡す。
+    private var cardHeader: some View {
+        CardHeader(title: store.name(forBangumi: workID), onClose: onClose) {
+            ShareLink(item: shareURL, subject: shareSubject) {
+                CardHeaderCircleLabel(systemName: "square.and.arrow.up")
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("分享")
+        } subtitle: {
             HStack(spacing: 6) {
                 ThemeDot(color: store.color(forBangumi: workID))
                 Text(subtitleText)
             }
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
         }
     }
 
@@ -173,22 +173,15 @@ struct WorkCardSheet: View {
 
     // MARK: 4. 動作排
 
-    /// 地点カードと同じ等幅タイル（実測 総高 51pt・icon 上＋`.footnote` 下）。
-    /// Apple では動作排のタイルは**枚数に関係なく行幅を等分**する（連絡先カードで
-    /// 動作が 2 つしか無い場合も 2 枚で幅を分け合う）ので、ここも 2 枚で等分にする。
-    /// 主・次は色だけで分け、寸法は揃える。
+    /// 地点カードと同じ高さのタイル（実測 総高 51pt・icon 上＋`.footnote` 下）。
+    /// 共有は頭部の丸釦へ移したので、この作品カードに残る動作は 1 つだけ——
+    /// Apple の地点カードの先頭タイル（青い主動作）と同じ形で**行幅いっぱい**に敷く。
+    /// このカードで tint 填充を使うのはここ 1 枚だけ。
     private var actionRow: some View {
-        HStack(spacing: 8) {
-            Button(action: onRefit) {
-                ActionTileLabel(systemImage: "map", title: "查看全部点位")
-            }
-            .buttonStyle(ActionTileButtonStyle(prominent: true))
-
-            ShareLink(item: shareURL, subject: shareSubject) {
-                ActionTileLabel(systemImage: "square.and.arrow.up", title: "分享")
-            }
-            .buttonStyle(ActionTileButtonStyle())
+        Button(action: onRefit) {
+            ActionTileLabel(systemImage: "map", title: "查看全部点位")
         }
+        .buttonStyle(ActionTileButtonStyle(prominent: true))
     }
 
     private var shareURL: URL {
