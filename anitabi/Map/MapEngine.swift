@@ -111,19 +111,26 @@ enum MapMarkerMetrics {
         interpolate(zoom, base: 1.75, stops: [(12, 1.5), (18, 3), (22, 6)])
     }
 
-    /// Web `points-image` 層（ブラウズ時の大カード）の絵の寸法。
+    /// ブラウズ時（z>18）の大カードの寸法。
     ///
-    /// 出処：`4b970b29.js:2364-2394` の canvas —— `width = 160`, `height = 120 + 14`,
-    /// 角は 4px の面取り、尾は底辺 28px・高さ 14px、`addImage(..., {pixelRatio: 2})`。
-    /// よって画面上は 1/2 の pt になる。`icon-anchor: "bottom"` ＋ `icon-offset: [0,-1]`。
+    /// **寸法**は Web `points-image`（`4b970b29.js:2364-2394`：160×(120+14) px、pixelRatio 2
+    /// → 80×60pt+尾 7pt、`icon-anchor:"bottom"`＋`icon-offset:[0,-1]`）のまま。
+    /// **意匠**は Web から意図的に離れる：Web は大カード＝無枠・小泡＝作品色枠の 2 種類だが、
+    /// 「同画面で 2 つの意匠が混在するのはおかしい」というユーザー指摘（2026-08-09）により、
+    /// 小泡（`PhotoBubble`）と同じ「作品色の枠＋滴」意匠に統一し、寸法だけ 2 段にする。
+    /// 枠色＝作品テーマ色はブラウズ時に複数作品が混在しても帰属が一目で分かる利点がある。
     enum PhotoCard {
         static let bodySize = CGSize(width: 80, height: 60)
-        static let tailSize = CGSize(width: 14, height: 7)
-        static let cornerRadius: CGFloat = 2
+        static let cornerRadius: CGFloat = 4
+        static let borderWidth: CGFloat = 1
+        /// 滴・内三角は PhotoBubble の比率をカード幅へ拡大したもの。
+        static let dripSize = CGSize(width: 14, height: 7)
+        static let innerTailSize = CGSize(width: 11, height: 7.5)
+        static let innerTailOverlap: CGFloat = 1.7
         /// 尾の先端が座標。さらに Web の `icon-offset: [0,-1]` ぶん 1pt 上げる。
         static let anchorLift: CGFloat = 1
         static var totalSize: CGSize {
-            CGSize(width: bodySize.width, height: bodySize.height + tailSize.height)
+            CGSize(width: bodySize.width, height: bodySize.height + dripSize.height)
         }
     }
 

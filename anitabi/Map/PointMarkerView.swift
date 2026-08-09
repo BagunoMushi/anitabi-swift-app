@@ -307,10 +307,12 @@ private final class DotMarkerBody: UIView {
 /// Web の劇照 2 層の等価物。ズームで様式だけを差し替える（ビューは作り直さない）。
 ///
 /// - `.card` ＝ `points-image` 層（`4b970b29.js:2364-2394`）。160×134px の canvas を
-///   `pixelRatio: 2` で載せるので画面上は 80×67pt。枠も影も無く、**尾まで画像で塗られる**
-///   （clip パスに尾が含まれていて、そこへ画像をそのまま描いている）。
+///   `pixelRatio: 2` で載せるので画面上は 80×67pt（Web 原版は無枠だが、意匠は下記に統一）。
 /// - `.bubble` ＝ `bangumi-points-theme` 層（`37476042.js:139-190`）。100×89px ÷2 ＝ 50×44.5pt。
 ///   作品色の 1pt 枠と、その下に作品色の滴、滴の上に画像で塗られた小三角が乗る。
+///
+/// **意匠は両者とも bubble 式（作品色枠＋滴）に統一**。Web の「大カード無枠／小泡有枠」の
+/// 2 意匠混在はユーザー指摘（2026-08-09）で棄却——寸法の 2 段だけを残す。
 private final class PhotoMarkerBody: UIView {
 
     enum Style { case card, bubble }
@@ -386,39 +388,57 @@ private final class PhotoMarkerBody: UIView {
 
     // MARK: 様式
 
+    /// 大カードも小泡と**同じ意匠**（作品色の枠＋滴）。Web は 2 意匠あったが、同画面での
+    /// 混在はおかしいというユーザー指摘（2026-08-09）で寸法 2 段・意匠 1 本に統一した。
     private func layOutCard() {
         typealias Metrics = MapMarkerMetrics.PhotoCard
-        bounds = CGRect(origin: .zero, size: Metrics.totalSize)
-
-        frameLayer.isHidden = true
-        contentLayer.frame = bounds
-        placeholder.frame = bounds
-        imageLayer.frame = bounds
-        contentMask.frame = bounds
-        contentMask.path = Self.plate(
-            body: CGRect(origin: .zero, size: Metrics.bodySize),
+        layOutFramed(
+            totalSize: Metrics.totalSize,
+            bodySize: Metrics.bodySize,
             cornerRadius: Metrics.cornerRadius,
-            tail: Metrics.tailSize,
-            tailTopOverlap: 0.5
-        ).cgPath
+            borderWidth: Metrics.borderWidth,
+            drip: Metrics.dripSize,
+            innerTail: Metrics.innerTailSize,
+            innerTailOverlap: Metrics.innerTailOverlap
+        )
     }
 
     private func layOutBubble() {
         typealias Metrics = MapMarkerMetrics.PhotoBubble
-        bounds = CGRect(origin: .zero, size: Metrics.totalSize)
+        layOutFramed(
+            totalSize: Metrics.totalSize,
+            bodySize: Metrics.bodySize,
+            cornerRadius: Metrics.cornerRadius,
+            borderWidth: Metrics.borderWidth,
+            drip: Metrics.dripSize,
+            innerTail: Metrics.innerTailSize,
+            innerTailOverlap: Metrics.innerTailOverlap
+        )
+    }
 
-        let body = CGRect(origin: .zero, size: Metrics.bodySize)
+    private func layOutFramed(
+        totalSize: CGSize,
+        bodySize: CGSize,
+        cornerRadius: CGFloat,
+        borderWidth: CGFloat,
+        drip: CGSize,
+        innerTail: CGSize,
+        innerTailOverlap: CGFloat
+    ) {
+        bounds = CGRect(origin: .zero, size: totalSize)
+
+        let body = CGRect(origin: .zero, size: bodySize)
         frameLayer.isHidden = false
         frameLayer.frame = bounds
         frameLayer.fillColor = themeColor.cgColor
         frameLayer.path = Self.plate(
             body: body,
-            cornerRadius: Metrics.cornerRadius,
-            tail: Metrics.dripSize,
+            cornerRadius: cornerRadius,
+            tail: drip,
             tailTopOverlap: 0.5
         ).cgPath
 
-        let inset = Metrics.borderWidth
+        let inset = borderWidth
         let inner = body.insetBy(dx: inset, dy: inset)
         contentLayer.frame = bounds
         placeholder.frame = inner
@@ -426,9 +446,9 @@ private final class PhotoMarkerBody: UIView {
         contentMask.frame = bounds
         contentMask.path = Self.plate(
             body: inner,
-            cornerRadius: Metrics.cornerRadius - inset,
-            tail: Metrics.innerTailSize,
-            tailTopOverlap: Metrics.innerTailOverlap - inset
+            cornerRadius: cornerRadius - inset,
+            tail: innerTail,
+            tailTopOverlap: innerTailOverlap - inset
         ).cgPath
     }
 
