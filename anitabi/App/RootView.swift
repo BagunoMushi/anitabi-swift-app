@@ -3,23 +3,30 @@
 //  anitabi
 //
 //  ============================================================================
-//  RootView —— 全画面の地図 ＋ 積み重なる 3 枚の sheet
+//  RootView —— 全画面の地図 ＋ **常に 1 枚だけ**の sheet
 //  ============================================================================
 //
-//  呈现の入れ子はそのまま「戻る」の階段になっている（Web 版の history と同じ）：
+//  Apple マップの呈现モデルをそのまま写す（2026-08-09 に 3 枚重ねから作り直した）。
+//  実物を見ると分かる要点は 3 つ：
 //
-//      RootView（地図）
-//        └ HomeSheet（常駐・閉じられない）
-//             ├ WorkCardSheet          ← 作品モード
-//             │    └ PointCardSheet    ← 作品の中の 1 点
-//             └ PointCardSheet         ← 作品モード外で地図から選んだ 1 点
+//  1. sheet は**同時に 1 枚しか居ない**。地点カードを開いた瞬間、下に居た検索 sheet は
+//     画面から完全に消える（下層が一截だけ覗く、という見え方はしない）。
+//  2. なので「重ねる」のではなく**中身を差し替える**。呈现スタックは `SheetContent` の
+//     配列としてこちらで持ち、いちばん上だけを見せる。下の層は mount したまま隠すだけ——
+//     検索文字列やスクロール位置を失わずに戻すため。
+//  3. 覆われた層は**そのときの档を覚える**。上のカードを閉じると、下の層は初期档ではなく
+//     覚えていた档で戻ってくる（「弹回来」）。
 //
-//  地標カードを出す `.sheet` が 2 か所にあるのは、親が居るかどうかで呈现元が変わるため。
-//  同じ Optional に 2 つの `.sheet` を同時に生かすと二重呈现になるので、Home 側は
-//  「作品カードが無いときだけ」値を返す派生 Binding にしてある。
+//  下スワイプでカードは閉じない（`interactiveDismissDisabled`）。いちばん低い档は各層の
+//  mini 档で、閉じるのは ✕（作品カードは圧暗部タップも）だけ。
+//
+//  档の集合（`presentationDetents`）と選択中の档は**必ず同じトランザクション**で動かす。
+//  別々に動かすと、新しい集合に入っていない古い選択が一瞬だけ適用されて档が跳ねる。
 //
 //  カメラ指令は Router ではなくここが持つ。同じ「地標を選ぶ」でも一覧経由なら寄り、
 //  地図経由なら動かさない —— 経路の違いは呈现状態には出ないので、状態機には置けない。
+//
+//  档の定数（`SheetLayout` / `SheetLayer`）は `Sheets/SheetDesign.swift` にまとめてある。
 //
 
 import CoreLocation
@@ -27,40 +34,40 @@ import MapKit
 import SwiftUI
 import UIKit
 
-// MARK: - 档
-
-/// 3 枚それぞれの档。最小档の数値は各カードの見出しがちょうど残る高さ。
-enum SheetLayout {
-    /// 検索行の実測内訳 15 + 42 + 15。Apple マップの収起档（72–80pt）と同じ帯に収まる。
-    static let homeMinHeight: CGFloat = 72
-    static let workMinHeight: CGFloat = 128
-    static let pointMinHeight: CGFloat = 96
-
-    static let homeFraction = 0.40
-    static let workFraction = 0.45
-    static let pointFraction = 0.55
-
-    static let homeMin = PresentationDetent.height(homeMinHeight)
-    static let workMin = PresentationDetent.height(workMinHeight)
-    static let pointMin = PresentationDetent.height(pointMinHeight)
-
-    static let homeInitial = PresentationDetent.fraction(homeFraction)
-    static let workInitial = PresentationDetent.fraction(workFraction)
-    static let pointInitial = PresentationDetent.fraction(pointFraction)
-
-    static let homeDetents: Set<PresentationDetent> = [homeMin, homeInitial, .large]
-    static let workDetents: Set<PresentationDetent> = [workMin, workInitial, .large]
-    static let pointDetents: Set<PresentationDetent> = [pointMin, pointInitial, .large]
-
-    /// 長押し落針カード。`.large` を持たない——見出し＋近点 3 行＋動作排で収まる軽いカードなので、
-    /// 全画面まで持ち上げる意味が無い（spec 通り 2 档だけ）。
-    static let droppedPinInitial = PresentationDetent.fraction(0.4)
-    static let droppedPinDetents: Set<PresentationDetent> = [pointMin, droppedPinInitial]
-}
-
 // MARK: - RootView
 
 struct RootView: View {
+
+    // MARK: 呈现スタックの 1 要素
+
+    /// 常駐 sheet に載る 1 枚ぶんの内容。`id` は**層＋対象**で決まる——同じ「作品カード」でも
+    /// 別の作品なら別物として扱いたい（档の記憶も、View の identity も分けたい）ため。
+    private enum SheetContent: Identifiable, Equatable {
+        case home
+        case work(WorkSelection)
+        case point(PointSelection)
+        case droppedPin(DroppedPin)
+
+        var id: String {
+            switch self {
+            case .home: "home"
+            case .work(let selection): "w\(selection.id)"
+            case .point(let selection): "p\(selection.id)"
+            case .droppedPin(let pin): "d\(pin.id)"
+            }
+        }
+
+        var layer: SheetLayer {
+            switch self {
+            case .home: .home
+            case .work: .work
+            case .point: .point
+            case .droppedPin: .droppedPin
+            }
+        }
+
+        static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+    }
 
     @State private var store = AnitabiStore()
     @State private var locationProvider = LocationProvider()
@@ -71,10 +78,17 @@ struct RootView: View {
     /// 画面全体の大きさ。カード高さぶんの下余白・上寄せ量を実測値から出すために持つ。
     @State private var windowSize: CGSize = .zero
 
-    @State private var homeDetent = SheetLayout.homeInitial
-    @State private var workDetent = SheetLayout.workInitial
-    @State private var pointDetent = SheetLayout.pointInitial
-    @State private var droppedPinDetent = SheetLayout.droppedPinInitial
+    // MARK: 呈现スタック（1 枚の sheet の中身）
+
+    /// 下から順に積んだ内容。いちばん後ろ（`top`）だけが見えている。
+    /// router の状態から導けるが、**@State に写して持つ**のが肝——内容と档を
+    /// 同じ `withAnimation` の中で入れ替えるには、両方が @State である必要がある。
+    @State private var stack: [SheetContent] = [.home]
+    /// 常駐 sheet の生きている档。全層で 1 本だけ。
+    @State private var detent: PresentationDetent = SheetLayer.home.initialDetent
+    /// 覆われた層の档の記憶（key は `SheetContent.id`）。閉じて戻ってきたときに復元する。
+    /// スタックから外れた層のぶんは毎回間引くので、中身は常に高々 3 件。
+    @State private var rememberedDetents: [String: PresentationDetent] = [:]
 
     /// 浮控の地図钮（阶段 7）。`MapBaseStyle` に `String` raw value を持たせて `@AppStorage` に直接載せる。
     @AppStorage("map.baseStyle") private var baseStyle: MapBaseStyle = .standard
@@ -110,10 +124,9 @@ struct RootView: View {
         // SwiftUI の呈现キューは「シーン内で同時に有効な sheet 系は 1 枚」——
         // `.fullScreenCover` もこのキューを共有する（実機ログで確認：
         // `Currently, only presenting a single sheet is supported.` が Fault で出る）。
-        // HomeSheet の `.sheet` は常駐（一度も dismiss されない）ので、素朴に
-        // `.fullScreenCover` を足すだけだと欢迎页は「順番待ち」のまま永久に出番が来ない。
-        // 対策は HomeSheet 側の `isPresented` を `!isWelcomePresented` にして、
-        // 欢迎页を出している間だけ HomeSheet 自身の枠を明け渡すこと。
+        // 常駐 sheet は一度も dismiss されないので、素朴に `.fullScreenCover` を足すだけだと
+        // 欢迎页は「順番待ち」のまま永久に出番が来ない。対策は常駐 sheet 側の `isPresented` を
+        // `!isWelcomePresented` にして、欢迎页を出している間だけ枠を明け渡すこと。
         //
         // スクリーンショット専用の透かし（`AppIdentityPillOverlay`）は旧 `ContentView` と同じく
         // 根部の ZStack に同居させる——欢迎页が出ている間は `.fullScreenCover` がまるごと覆うので
@@ -130,7 +143,7 @@ struct RootView: View {
     private var content: some View {
         mapLayer
             .onGeometryChange(for: CGSize.self) { $0.size } action: { windowSize = $0 }
-            .sheet(isPresented: .constant(!isWelcomePresented)) { homeSheet }
+            .sheet(isPresented: .constant(!isWelcomePresented)) { residentSheet }
             .task {
                 if locationProvider.isAuthorized { locationProvider.start() }
                 await store.bootstrap()
@@ -140,10 +153,10 @@ struct RootView: View {
                 resolveInitialState()
             }
             .onChange(of: store.points.count) { _, _ in reloadDataset() }
+            // 呈现スタックの唯一の同期点。router がどんな順で書き換わっても、
+            // 落ち着いた後の姿がここに 1 回だけ届く（同一フレーム内の複数変更はまとめて 1 回）。
+            .onChange(of: routerStack) { _, _ in syncStack() }
             .onChange(of: router.workCard) { _, new in didOpenWork(new) }
-            .onChange(of: router.pointCard) { _, new in
-                if new != nil { pointDetent = SheetLayout.pointInitial }
-            }
             .onChange(of: router.wantsWelcomeReplay) { _, wants in
                 guard wants else { return }
                 router.wantsWelcomeReplay = false
@@ -191,7 +204,7 @@ struct RootView: View {
                 onTapBlank: { router.closePointCard() },
                 onLongPress: { router.dropPin(at: $0) },
                 onCameraIdle: { router.cameraState = $0 },
-                // SwiftUI の `simultaneousGesture` でも拾えることは実測済み（3 枚重ねでも発火する）が、
+                // SwiftUI の `simultaneousGesture` でも拾えることは実測済みだが、
                 // あちらは 1 回のドラッグで数十回呼ばれ、ピンチは拾えない。began で 1 回だけの方を使う。
                 onUserInteractionBegan: collapseTopSheet,
                 // `makeUIView` の最中に `@State` を直接書き換えると「ビュー更新中に状態変更」の
@@ -219,8 +232,8 @@ struct RootView: View {
                     }
                     .padding(.top, 16)
                     .padding(.horizontal, 16)
-                    .opacity(isTopSheetFullyOpen ? 0 : 1)
-                    .animation(.anitabiSpring, value: isTopSheetFullyOpen)
+                    .opacity(detent == .large ? 0 : 1)
+                    .animation(.anitabiSpring, value: detent == .large)
                     Spacer(minLength: 0)
                 }
             }
@@ -233,137 +246,127 @@ struct RootView: View {
         }
     }
 
-    /// いちばん上に乗っているカードが全开档か。全开は sheet が画面全体を覆うので、
-    /// 浮控は地図ごと見えなくなる——出しっぱなしにする理由が無い。
-    private var isTopSheetFullyOpen: Bool {
-        if router.pointCard != nil { return pointDetent == .large }
-        if router.workCard != nil { return workDetent == .large }
-        return homeDetent == .large
-    }
+    // MARK: 常駐 sheet（1 枚）
 
-    // MARK: sheet 3 枚
+    /// いちばん上に乗っている内容。呈现・档・背景交互の全部がこれ 1 つから決まる。
+    private var top: SheetContent { stack.last ?? .home }
 
-    private var homeSheet: some View {
-        HomeSheet(
-            store: store,
-            router: router,
-            locationProvider: locationProvider,
-            cameraState: router.cameraState,
-            homeDetent: $homeDetent,
-            onSelectPoint: { selectPointFromList($0) },
-            onFocusCity: { focusCity($0) }
-        )
-            // 作品カードと（作品モード外の）地標カードは排他。1 つの `.sheet` にまとめて
-            // 呈现元を 1 か所に保つ。
-            .sheet(item: homeChild, onDismiss: { router.consumePendingWork() }) { child in
-                switch child {
-                case .work(let selection): workSheet(selection)
-                case .point(let selection): pointSheet(selection)
-                }
+    /// 新しいカードは少し下から浮き上がりつつ現れ、古いカードはその場で淡出する。
+    /// `.move(edge: .bottom)`（＝カード 1 枚ぶん丸ごとスライド）も試したが、
+    /// 档が同時に動く（sheet 自体の高さが変わる）せいで 2 つの動きが喧嘩して見えた。
+    /// Apple の実物も「カードが差し替わる」ように見えるだけで大きくは滑らないので、
+    /// 浮き上がりは 24pt に留めて淡入淡出を主にする。
+    private static let cardTransition = AnyTransition.asymmetric(
+        insertion: .offset(y: 24).combined(with: .opacity),
+        removal: .opacity
+    )
+
+    /// 常駐 sheet の中身。**閉じない・積まない**——中身だけが入れ替わる。
+    ///
+    /// 下の層を `if` で消さずに opacity で隠すのは、検索文字列・スクロール位置・
+    /// 分组の折り畳み状態を保つため（消すと @State ごと作り直しになる）。
+    private var residentSheet: some View {
+        ZStack {
+            ForEach(stack) { entry in
+                sheetContent(entry)
+                    .opacity(entry.id == top.id ? 1 : 0)
+                    .allowsHitTesting(entry.id == top.id)
+                    .accessibilityHidden(entry.id != top.id)
+                    .transition(Self.cardTransition)
             }
-            // 長押し落針カード。`AppRouter.dropPin` が work/point を先に畳んでいるので、
-            // 上の `.sheet(item: homeChild)` と同時に値を持つことは無い。
-            .sheet(item: droppedPinBinding) { pin in
-                droppedPinSheet(pin)
-            }
-            .presentationDetents(SheetLayout.homeDetents, selection: $homeDetent)
-            // 半开までは地図に直接触れる。全开のときだけ sheet が地図を占有する。
-            .presentationBackgroundInteraction(.enabled(upThrough: SheetLayout.homeInitial))
-            .presentationDragIndicator(.visible)
-            .interactiveDismissDisabled()
-    }
-
-    private func droppedPinSheet(_ pin: DroppedPin) -> some View {
-        DroppedPinSheet(
-            store: store,
-            coordinate: pin.coordinate,
-            currentZoom: router.cameraState?.zoom ?? 0,
-            onSelectPoint: { point in
-                router.droppedPin = nil
-                selectPointFromList(point)
-            },
-            onClose: { router.droppedPin = nil }
-        )
-        .presentationDetents(SheetLayout.droppedPinDetents, selection: $droppedPinDetent)
-        .presentationBackgroundInteraction(.enabled(upThrough: SheetLayout.droppedPinInitial))
+        }
+        // 档の集合と選択は同じ `top` から出る＝必ず同じ更新で入れ替わる。
+        .presentationDetents(top.layer.detents, selection: $detent)
+        // 半开までは地図に直接触れる。全开のときだけ sheet が地図を占有する。
+        .presentationBackgroundInteraction(.enabled(upThrough: top.layer.initialDetent))
         .presentationDragIndicator(.visible)
+        // 下スワイプで閉じない（＝各層の mini 档が下限）。閉じるのは ✕ だけ。
+        .interactiveDismissDisabled()
     }
 
-    private func workSheet(_ selection: WorkSelection) -> some View {
-        WorkCardSheet(
-            store: store,
-            workID: selection.id,
-            selectedPointID: router.pointCard?.id,
-            onSelectPoint: selectPointFromList,
-            onClose: { router.closeWorkCard() },
-            onRefit: { refitWork(selection.id) }
-        )
-        .sheet(item: workChildPoint, onDismiss: { router.consumePendingWork() }) { pointSheet($0) }
-        .presentationDetents(SheetLayout.workDetents, selection: $workDetent)
-        .presentationBackgroundInteraction(.enabled(upThrough: SheetLayout.workInitial))
-        .presentationDragIndicator(.visible)
-    }
-
-    private func pointSheet(_ selection: PointSelection) -> some View {
-        PointCardSheet(
-            store: store,
-            router: router,
-            locationProvider: locationProvider,
-            selection: selection,
-            onSelectWork: { router.handOffToWork(id: $0) },
-            onClose: { router.closePointCard() }
-        )
-        .presentationDetents(SheetLayout.pointDetents, selection: $pointDetent)
-        .presentationBackgroundInteraction(.enabled(upThrough: SheetLayout.pointInitial))
-        .presentationDragIndicator(.visible)
-    }
-
-    // MARK: 呈现の派生 Binding
-
-    private enum HomeChild: Identifiable {
-        case work(WorkSelection)
-        case point(PointSelection)
-
-        var id: String {
-            switch self {
-            case .work(let selection): "w\(selection.id)"
-            case .point(let selection): "p\(selection.id)"
-            }
+    @ViewBuilder
+    private func sheetContent(_ entry: SheetContent) -> some View {
+        switch entry {
+        case .home:
+            HomeSheet(
+                store: store,
+                router: router,
+                locationProvider: locationProvider,
+                cameraState: router.cameraState,
+                homeDetent: $detent,
+                onSelectPoint: { selectPointFromList($0) },
+                onFocusCity: { focusCity($0) }
+            )
+        case .work(let selection):
+            WorkCardSheet(
+                store: store,
+                workID: selection.id,
+                selectedPointID: router.pointCard?.id,
+                onSelectPoint: selectPointFromList,
+                onClose: { router.closeWorkCard() },
+                onRefit: { refitWork(selection.id) }
+            )
+        case .point(let selection):
+            PointCardSheet(
+                store: store,
+                router: router,
+                locationProvider: locationProvider,
+                selection: selection,
+                onSelectWork: { router.handOffToWork(id: $0) },
+                onClose: { router.closePointCard() }
+            )
+        case .droppedPin(let pin):
+            DroppedPinSheet(
+                store: store,
+                coordinate: pin.coordinate,
+                currentZoom: router.cameraState?.zoom ?? 0,
+                onSelectPoint: { point in
+                    router.droppedPin = nil
+                    selectPointFromList(point)
+                },
+                onClose: { router.droppedPin = nil }
+            )
         }
     }
 
-    private var homeChild: Binding<HomeChild?> {
-        Binding {
-            if let work = router.workCard { return .work(work) }
-            if let point = router.pointCard { return .point(point) }
-            return nil
-        } set: { newValue in
-            guard newValue == nil else { return }  // 下スワイプで閉じられた場合だけ来る
-            if router.workCard != nil {
-                router.closeWorkCard()
-            } else {
-                router.closePointCard()
-            }
-        }
+    // MARK: 呈现スタックの同期
+
+    /// router の状態をそのまま積み上げた「本来あるべきスタック」。
+    private var routerStack: [SheetContent] {
+        var result: [SheetContent] = [.home]
+        if let work = router.workCard { result.append(.work(work)) }
+        if let point = router.pointCard { result.append(.point(point)) }
+        if let pin = router.droppedPin { result.append(.droppedPin(pin)) }
+        return result
     }
 
-    /// 作品カードの上に重ねる地標カード。作品カードが居ないときは Home 側が受け持つので nil。
-    private var workChildPoint: Binding<PointSelection?> {
-        Binding {
-            router.workCard == nil ? nil : router.pointCard
-        } set: { newValue in
-            if newValue == nil { router.closePointCard() }
+    /// 内容と档を 1 回のトランザクションで入れ替える。ここが呈现モデルの心臓部：
+    ///
+    /// - **上へ開く**（深さが増える／同じ深さで別物に替わる）→ 新しい層は**初期档**で出す。
+    ///   同時に、覆われる層の「今の档」を覚える。
+    /// - **下へ戻る**（深さが減る）→ 覚えていた档があればそれを**復元**する（「弹回来」）。
+    ///   一度も見せていない層（深リンクで飛び越えた作品カードなど）は記憶が無いので初期档。
+    private func syncStack() {
+        let next = routerStack
+        let current = top
+        guard let target = next.last, target.id != current.id else {
+            // いちばん上が同じなら档は動かさない（下の層だけ入れ替わった場合）。
+            if next != stack { stack = next }
+            return
         }
-    }
 
-    /// `router.droppedPin` を `.sheet(item:)` に渡すための Binding。`AppRouter` は `@State`
-    /// 経由で持っているので、`$router.droppedPin` の動的メンバー添字は使えない
-    /// （`homeChild`/`workChildPoint` と同じ理由で自前の Binding を組む）。
-    private var droppedPinBinding: Binding<DroppedPin?> {
-        Binding {
-            router.droppedPin
-        } set: { newValue in
-            if newValue == nil { router.droppedPin = nil }
+        var memory = rememberedDetents
+        memory[current.id] = detent
+
+        let restored = target.layer < current.layer ? memory[target.id] : nil
+        memory.removeValue(forKey: target.id)
+        // スタックから外れた層の記憶は捨てる（作品を渡り歩いても増えないように）。
+        let live = Set(next.map(\.id))
+        rememberedDetents = memory.filter { live.contains($0.key) }
+
+        withAnimation(.anitabiSpring) {
+            stack = next
+            detent = restored ?? target.layer.initialDetent
         }
     }
 
@@ -374,15 +377,7 @@ struct RootView: View {
     /// 外れるのと同じ理屈（この App には本物の追従モードは無いが、見た目だけ揃える）。
     private func collapseTopSheet() {
         isLocationActive = false
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            if router.pointCard != nil {
-                pointDetent = SheetLayout.pointMin
-            } else if router.workCard != nil {
-                workDetent = SheetLayout.workMin
-            } else {
-                homeDetent = SheetLayout.homeMin
-            }
-        }
+        withAnimation(.anitabiSpring) { detent = top.layer.minDetent }
     }
 
     /// 浮控の定位钮。授权済みなら镜头を寄せて「アクティブ」表示に、拒否済みなら設定アプリへ、
@@ -403,11 +398,11 @@ struct RootView: View {
         }
     }
 
-    /// 作品カードが開いた（＝作品モードに入った）。档を初期値に戻し、全点を収める画へ。
+    /// 作品カードが開いた（＝作品モードに入った）。全点を収める画へ。
+    /// 档は `syncStack()` が面倒を見るのでここでは触らない。
     /// 深リンクの no-fly 変体（c/z が来ている）ときは `suppressNextWorkFit` が立っているので、
     /// このフィットだけ 1 回黙る——訪問記録（`rememberVisit`）はそれでも取る。
     private func didOpenWork(_ selection: WorkSelection?) {
-        workDetent = SheetLayout.workInitial
         guard let selection else { return }
         store.rememberVisit(bangumiID: selection.id)
         if suppressNextWorkFit {
@@ -442,9 +437,7 @@ struct RootView: View {
             )
         )
         // Apple マップ同様、都市へ寄せたら sheet は半开に落として地図を見せる。
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            homeDetent = SheetLayout.homeInitial
-        }
+        withAnimation(.anitabiSpring) { detent = SheetLayer.home.initialDetent }
     }
 
     /// `version` は単調増加させること。同じ値だと地図エンジンが索引の建て直しを省く。
@@ -490,6 +483,9 @@ struct RootView: View {
     /// `bids` → 作品（c/z が有れば no-fly）→ 地標（地図経路と同じく镜头は動かさない）→
     /// 最後に c/z があれば直接そこへ。個々の id が見つからなければトーストで知らせるだけで
     /// 他のパラメータの処理は続ける（1 つ壊れていても丸ごと無視しない）。
+    ///
+    /// 呈现側は一切ここで触らない——router を書き換えれば `syncStack()` が
+    /// 「作品カードの上に地標カードが乗ったスタック」を勝手に組み立てる。
     private func apply(deepLink link: MapDeepLink, animated: Bool) {
         guard !link.isEmpty else { return }
 

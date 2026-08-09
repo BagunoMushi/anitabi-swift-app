@@ -17,6 +17,81 @@
 
 import SwiftUI
 
+// MARK: - 档（常駐 sheet の高さ）
+
+/// 常駐 sheet に載る 4 種類の内容それぞれの档。最小档の数値は各カードの見出しがちょうど残る高さ。
+///
+/// **1 枚しか sheet を出さない**呈现モデル（`RootView` 参照）なので、この 4 組は
+/// 「同時に生きている 4 枚の設定」ではなく「1 枚が内容に応じて着替える 4 着」である。
+/// 着替えのとき、档の集合（`detents`）と選択中の档は必ず同じトランザクションで入れ替える。
+enum SheetLayout {
+    /// 検索行の実測内訳 15 + 42 + 15。Apple マップの収起档（72–80pt）と同じ帯に収まる。
+    static let homeMinHeight: CGFloat = 72
+    static let workMinHeight: CGFloat = 128
+    static let pointMinHeight: CGFloat = 96
+
+    static let homeFraction = 0.40
+    static let workFraction = 0.45
+    static let pointFraction = 0.55
+
+    static let homeMin = PresentationDetent.height(homeMinHeight)
+    static let workMin = PresentationDetent.height(workMinHeight)
+    static let pointMin = PresentationDetent.height(pointMinHeight)
+
+    static let homeInitial = PresentationDetent.fraction(homeFraction)
+    static let workInitial = PresentationDetent.fraction(workFraction)
+    static let pointInitial = PresentationDetent.fraction(pointFraction)
+
+    static let homeDetents: Set<PresentationDetent> = [homeMin, homeInitial, .large]
+    static let workDetents: Set<PresentationDetent> = [workMin, workInitial, .large]
+    static let pointDetents: Set<PresentationDetent> = [pointMin, pointInitial, .large]
+
+    /// 長押し落針カード。`.large` を持たない——見出し＋近点 3 行＋動作排で収まる軽いカードなので、
+    /// 全画面まで持ち上げる意味が無い（spec 通り 2 档だけ）。
+    static let droppedPinInitial = PresentationDetent.fraction(0.4)
+    static let droppedPinDetents: Set<PresentationDetent> = [pointMin, droppedPinInitial]
+}
+
+/// 呈现スタックの「深さ」。数が大きいほど上に乗る。
+/// `Comparable` なのは「上へ開いた（＝初期档で出す）」のか「下へ戻った（＝覚えていた档を復元する）」のかを
+/// 深さの大小だけで判定するため。
+enum SheetLayer: Int, Comparable {
+    case home = 0
+    case work
+    case point
+    case droppedPin
+
+    /// 下スワイプで落ちきる档。ここより下へは行かない（＝下スワイプでは閉じない）。
+    var minDetent: PresentationDetent {
+        switch self {
+        case .home: SheetLayout.homeMin
+        case .work: SheetLayout.workMin
+        case .point, .droppedPin: SheetLayout.pointMin
+        }
+    }
+
+    /// 新しく開いたときの档。背景（地図）を直接触れる上限でもある。
+    var initialDetent: PresentationDetent {
+        switch self {
+        case .home: SheetLayout.homeInitial
+        case .work: SheetLayout.workInitial
+        case .point: SheetLayout.pointInitial
+        case .droppedPin: SheetLayout.droppedPinInitial
+        }
+    }
+
+    var detents: Set<PresentationDetent> {
+        switch self {
+        case .home: SheetLayout.homeDetents
+        case .work: SheetLayout.workDetents
+        case .point: SheetLayout.pointDetents
+        case .droppedPin: SheetLayout.droppedPinDetents
+        }
+    }
+
+    static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
 // MARK: - 寸法トークン
 
 /// シート内で使う寸法。Ice Cubes の DesignSystem と同じく、定数はここだけに置いて数を絞る。

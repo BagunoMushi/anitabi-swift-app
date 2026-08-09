@@ -82,11 +82,6 @@ final class AppRouter {
     /// chips による複数作品フィルタ（Web の `bids`）。作品モードとは排他。
     var selectedWorkIDs: Set<Int> = []
 
-    /// 地標カード → 作品カードの受け渡し中の作品 ID。
-    /// 同フレームで dismiss + present すると後の呈现が落ちるため、いったん預けて
-    /// 地標カードの `onDismiss` で `consumePendingWork()` が受け取る。
-    private(set) var pendingWork: Int?
-
     /// 地図が最後に静止した位置。視口 chips の集計と状態復元（阶段 8）が読む。
     var cameraState: MapCameraState?
 
@@ -113,29 +108,20 @@ final class AppRouter {
     /// 地図の「何を出すか」が二重定義になる。
     func focusWork(id: Int) {
         guard workCard?.id != id || pointCard != nil else { return }
-        // 地標カードが上に乗っている間は直接差し替えられない（同フレーム dismiss + present）。
-        if pointCard != nil {
-            handOffToWork(id: id)
-            return
-        }
-        selectedWorkIDs = []
-        workCard = WorkSelection(id: id)
-    }
-
-    /// 地標カードの作品 chip から作品カードへ。閉じてから開くので 2 フレームに分かれる。
-    func handOffToWork(id: Int) {
-        pendingWork = id
+        // 呈现が 1 枚の sheet の中身の差し替えになったので、dismiss + present の競合が無い。
+        // 地標カードが乗っていても同じフレームで畳んで差し替えてよい
+        // （旧・`pendingWork` に預けて `onDismiss` で受け取る 2 段構えは不要になった）。
         pointCard = nil
-    }
-
-    /// 地標カードが実際に消えた後に呼ぶ（`.sheet(onDismiss:)`）。
-    func consumePendingWork() {
-        guard let id = pendingWork else { return }
-        pendingWork = nil
         // 既に同じ作品のカードが下に居るなら、そこへ戻るだけ（呈现も镜头も動かさない）。
         guard workCard?.id != id else { return }
         selectedWorkIDs = []
         workCard = WorkSelection(id: id)
+    }
+
+    /// 地標カードの作品 chip から作品カードへ。単 sheet では `focusWork` と同義だが、
+    /// 「地標カードを畳んで作品へ渡す」という意図が呼び出し側で読めるよう名前は残す。
+    func handOffToWork(id: Int) {
+        focusWork(id: id)
     }
 
     /// 地標を選ぶ（web `setPopup`）。
@@ -156,7 +142,6 @@ final class AppRouter {
 
     /// Browse へ戻す（作品カードの✕・圧暗部タップ）。フィルタも全部解く。
     func backToBrowse() {
-        pendingWork = nil
         pointCard = nil
         workCard = nil
         selectedWorkIDs = []
@@ -177,9 +162,10 @@ final class AppRouter {
         selectedWorkIDs = []
     }
 
-    /// 長押しで針を落とす。地標／作品カードとは排他 —— 同時に非 nil だと `HomeSheet` 側の
-    /// `.sheet(item:)` が 2 つ同時に値を持つことになり呈现が不定になるため、先に畳んでおく
-    /// （地図の見える部分への長押しは「今のカードから離れて新しい場所を見る」操作でもある）。
+    /// 長押しで針を落とす。地標／作品カードは先に畳む —— 地図の見える部分への長押しは
+    /// 「今のカードから離れて新しい場所を見る」操作なので、針のカードを閉じたら
+    /// 元のカードではなく Browse（＝検索 sheet）へ戻るのが素直
+    /// （呈现側は 1 枚 sheet なので、重ねること自体は技術的には可能になった）。
     func dropPin(at coordinate: CLLocationCoordinate2D) {
         pointCard = nil
         workCard = nil
