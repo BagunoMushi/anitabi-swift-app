@@ -135,10 +135,8 @@ struct WorkCardSheet: View {
     private var compactHeader: some View {
         HStack(alignment: .center, spacing: SheetMetrics.circleButtonGap) {
             VStack(alignment: .leading, spacing: SheetMetrics.rowTitleGap) {
-                Text(store.name(forBangumi: workID))
-                    .font(SheetFont.titleCompactWork)
-                    .foregroundStyle(Color.anitabiInk)
-                    .lineLimit(1)
+                // 一段式は 1 行しか無いので、長い作品名は `…` に切らず横に流す（`MarqueeText`）。
+                MarqueeText(text: store.name(forBangumi: workID), font: SheetFont.titleCompactWork)
                 subtitleRow(includesScreenshots: false)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -158,6 +156,7 @@ struct WorkCardSheet: View {
             .fixedSize(horizontal: false, vertical: true)
             .compactContentHeight(.work)
             .hidden()
+            .environment(\.isMarqueeEnabled, false)
             .frame(height: 0, alignment: .top)
     }
 

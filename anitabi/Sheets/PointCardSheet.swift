@@ -150,10 +150,8 @@ struct PointCardSheet: View {
         HStack(alignment: .center, spacing: SheetMetrics.thumbnailGap) {
             SceneThumbnail(url: point.thumbnailURL, size: SheetMetrics.miniThumbnailSize)
             VStack(alignment: .leading, spacing: SheetMetrics.rowTitleGap) {
-                Text(pointName(point))
-                    .font(SheetFont.titleCompactPoint)
-                    .foregroundStyle(Color.anitabiInk)
-                    .lineLimit(1)
+                // 一段式は 1 行しか無いので、長い点名は `…` に切らず横に流す（`MarqueeText`）。
+                MarqueeText(text: pointName(point), font: SheetFont.titleCompactPoint)
                 HStack(spacing: SheetMetrics.scaled(5)) {
                     ThemeDot(color: themeColor, size: SheetMetrics.dotSize)
                     Text(compactMetaText(point))
@@ -172,6 +170,7 @@ struct PointCardSheet: View {
     /// 一段式の実高だけを測るための不可視の複製（レイアウトには効かせない）。
     private func compactHeaderProbe(_ point: ScenePoint) -> some View {
         compactHeader(point)
+            .environment(\.isMarqueeEnabled, false)
             .fixedSize(horizontal: false, vertical: true)
             .compactContentHeight(.point)
             .hidden()
