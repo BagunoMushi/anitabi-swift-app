@@ -213,7 +213,7 @@ struct WorkCardSheet: View {
                     )
                     .overlay {
                         if let url = headerCoverURL {
-                            AsyncImage(url: url) { phase in
+                            RemoteImage(url: url) { phase in
                                 if case .success(let image) = phase {
                                     image.resizable().scaledToFill()
                                 }

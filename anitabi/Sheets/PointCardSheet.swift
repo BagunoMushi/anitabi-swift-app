@@ -271,7 +271,7 @@ struct PointCardSheet: View {
                 Rectangle()
                     .fill(Color.anitabiMediaPlaceholder)
                     .overlay {
-                        AsyncImage(url: cardImageURL) { phase in
+                        RemoteImage(url: cardImageURL) { phase in
                             switch phase {
                             case .success(let image):
                                 image.resizable().scaledToFill()
@@ -279,7 +279,7 @@ struct PointCardSheet: View {
                                 Image(systemName: "photo")
                                     .imageScale(.large)
                                     .foregroundStyle(Color.anitabiInkFaint)
-                            default:
+                            case .empty:
                                 ProgressView()
                             }
                         }

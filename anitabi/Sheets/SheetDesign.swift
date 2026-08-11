@@ -1228,7 +1228,7 @@ struct SceneThumbnail: View {
             .fill(placeholder.map { AnyShapeStyle($0) } ?? AnyShapeStyle(Color.anitabiMediaPlaceholder))
             .overlay {
                 if let url {
-                    AsyncImage(url: url) { phase in
+                    RemoteImage(url: url, trigger: trigger) { phase in
                         if case .success(let image) = phase {
                             image.resizable().scaledToFill()
                         }
@@ -1248,6 +1248,8 @@ struct SceneThumbnail: View {
 struct CoverThumbnail: View {
     let bangumi: BangumiLite
     var size: CGSize = SheetMetrics.coverSize
+    /// 既定は「滚动で見えた行だけ読む」。ScrollView の外に置く時だけ `.appearance`。
+    var trigger: RemoteImageTrigger = .scrollVisibility
     var radius: CGFloat = SheetMetrics.coverRadius
 
     var body: some View {
@@ -1255,7 +1257,7 @@ struct CoverThumbnail: View {
             .fill(bangumi.themeGradient)
             .overlay {
                 if let url = bangumi.coverURL {
-                    AsyncImage(url: url) { phase in
+                    RemoteImage(url: url, trigger: trigger) { phase in
                         if case .success(let image) = phase {
                             image.resizable().scaledToFill()
                         }
@@ -1275,6 +1277,7 @@ struct ThemeDot: View {
     var body: some View {
         Circle()
             .fill(color)
+    var trigger: RemoteImageTrigger = .scrollVisibility
             .frame(width: size, height: size)
             .overlay {
                 if UIColor(color).needsDarkInnerOutline {
@@ -1296,7 +1299,7 @@ struct WorkChipCover: View {
                   ?? LinearGradient(colors: [fallback], startPoint: .top, endPoint: .bottom))
             .overlay {
                 if let url = bangumi?.coverURL {
-                    AsyncImage(url: url) { phase in
+                    RemoteImage(url: url, trigger: trigger) { phase in
                         if case .success(let image) = phase {
                             image.resizable().scaledToFill()
                         }
@@ -1314,3 +1317,4 @@ extension Animation {
     /// spec 全体で使う唯一のバネ設定。sheet 档・検索行の切り替えなど全アニメがこれに揃う。
     static let anitabiSpring = Animation.spring(response: 0.35, dampingFraction: 0.85)
 }
+    var trigger: RemoteImageTrigger = .scrollVisibility
