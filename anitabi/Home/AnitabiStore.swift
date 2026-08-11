@@ -144,7 +144,10 @@ final class AnitabiStore {
                 }
             }
             apply(fresh)
-            cachedModified = fresh.modified
+            // 古いキャッシュで代替した分割があるなら世代を進めない（次回そこを取り直させる）。
+            if fresh.detailsAreCurrent {
+                cachedModified = fresh.modified
+            }
             log.info("最新化完了：作品 \(fresh.bangumis.count) / 地標 \(fresh.points.count)")
         } catch {
             if points.isEmpty {

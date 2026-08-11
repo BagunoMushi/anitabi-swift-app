@@ -75,6 +75,15 @@ extension Color {
     /// 主動作の実心に載る字。設計稿 `#eaffec`、夜側は深緑。
     static let anitabiOnAccent = dynamic(light: Raw.onInk, dark: Raw.onAccentDark)
 
+    // MARK: - 截图水印カプセル
+
+    /// `AppIdentityPillView` の**夜側**の地。実機では Dynamic Island のマスクに隠れて見えないので、
+    /// この色は**スクリーンショットにしか出ない**。浅色側はここを使わず、下の sheet と同じ
+    /// `.regularMaterial` ＋ `anitabiCardGlass` を敷く（＝カプセルの地が sheet の地と一致する）。
+    static let anitabiIdentityPill = Color(uiColor: Raw.ink)
+    /// その上に載る字。浅色は sheet の上と同じ墨、夜側は設計稿の `#eaffec`。
+    static let anitabiOnIdentityPill = dynamic(light: Raw.ink, dark: Raw.onInk)
+
     // MARK: - カードの地（ガラス）
 
     /// カード（sheet）の地。設計稿の白 55% を淡緑に重ねた**合成色**を置き、ぼかしは material に

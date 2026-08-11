@@ -7,6 +7,7 @@
 //  複製しない）で、UIImage は要求された作品ぶんだけ作る —— 全部先に切ると 20MB 超。
 //
 
+import CryptoKit
 import OSLog
 import UIKit
 
@@ -89,11 +90,16 @@ final class BangumiIconSprite {
 
     // MARK: シートの取得（ディスクキャッシュ付き）
 
-    /// スプライトは数 MB ある。オフライン起動でも作品標が丸アイコンのままであってほしいので、
+    /// スプライトは数百 KB ある。オフライン起動でも作品標が丸アイコンのままであってほしいので、
     /// `URLCache` 任せにせず自前でファイルに落としておく。
+    ///
+    /// ファイル名には **URL の版（`bangumi-icons.webp?v=hl5ex`）を混ぜる**。固定名にすると
+    /// 新しいシートが配信されても永久に旧シートを使い続け、更新後の `ids` の並びと噛み合わずに
+    /// セルがずれる（新規作品が空白セルを切り出す）。版が変われば別ファイル＝取り直しになる。
+    /// 版の出所である `bangumi-icons.json` は起動ごとに取り直しているので、これで最新に追従する。
     private static func fetchSheet(url: URL) async -> UIImage? {
-        let cacheFile = AnitabiDataLoader.cacheDirectory?
-            .appendingPathComponent("bangumi-icons.img")
+        let dir = AnitabiDataLoader.cacheDirectory
+        let cacheFile = dir?.appendingPathComponent("bangumi-icons-\(cacheKey(for: url)).img")
 
         if let cacheFile, let data = try? Data(contentsOf: cacheFile), let image = UIImage(data: data) {
             return image
@@ -103,10 +109,54 @@ final class BangumiIconSprite {
             let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
             let image = UIImage(data: data)
         else {
-            log.warning("アイコンシートの取得に失敗：\(url.absoluteString)")
-            return nil
+            // 取れなければ手元にある旧版のシートで代替する。並びは多少ずれ得るが、
+            // 作品標が全部主題点に落ちるよりはアイコンが出ている方がよい。
+            log.warning("アイコンシートの取得に失敗（旧版で代替）：\(url.absoluteString)")
+            return dir.flatMap(staleSheet(in:))
         }
-        if let cacheFile { try? data.write(to: cacheFile, options: .atomic) }
+        if let cacheFile {
+            try? data.write(to: cacheFile, options: .atomic)
+            if let dir { discardSheets(in: dir, keeping: cacheFile) }
+        }
         return image
+    }
+
+    /// ファイル名用の短いキー。`hashValue` は起動ごとに変わるので使えない。
+    /// **ホスト名は混ぜない** —— 配信ノードが `ww.anitabi.cn` から `w.junreimap.com` へ
+    /// 切り替わっても中身は同じなので、同じ版なら再ダウンロードさせない。
+    private static func cacheKey(for url: URL) -> String {
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let version = components?.queryItems?.first { $0.name == "v" }?.value
+        let seed = version ?? [url.path, url.query].compactMap { $0 }.joined(separator: "?")
+        return SHA256.hash(data: Data(seed.utf8))
+            .prefix(8)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    /// 手元のシートキャッシュ全部（2.1 以前の固定名 `bangumi-icons.img` も拾う）。
+    private static func sheetFiles(in dir: URL) -> [URL] {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil
+        )) ?? []
+        return files.filter {
+            $0.pathExtension == "img" && $0.lastPathComponent.hasPrefix("bangumi-icons")
+        }
+    }
+
+    private static func staleSheet(in dir: URL) -> UIImage? {
+        for file in sheetFiles(in: dir) {
+            if let data = try? Data(contentsOf: file), let image = UIImage(data: data) {
+                return image
+            }
+        }
+        return nil
+    }
+
+    /// 旧版のシートを片付ける（1 枚 500KB 前後なので溜めない）。
+    private static func discardSheets(in dir: URL, keeping current: URL) {
+        for file in sheetFiles(in: dir) where file.lastPathComponent != current.lastPathComponent {
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 }

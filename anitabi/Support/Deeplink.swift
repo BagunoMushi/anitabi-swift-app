@@ -46,7 +46,10 @@ struct MapDeepLink: Codable {
     // MARK: - URL 解析
 
     private static let customScheme = "anitabi"
-    private static let webHosts: Set<String> = ["anitabi.cn", "www.anitabi.cn", "ww.anitabi.cn"]
+    /// `/map` を受け入れるホスト。ミラー（`w.junreimap.com`）の共有 URL も同じ形式なので拾う。
+    private static let webHosts: Set<String> = [
+        "anitabi.cn", "www.anitabi.cn", "ww.anitabi.cn", "w.junreimap.com",
+    ]
 
     /// 受け入れる形式に合わない／パラメータが 1 つも読めないときは `nil`。個々のパラメータは
     /// 壊れていても黙って捨てる —— 共有アプリを経由した URL は普通に壊れる。

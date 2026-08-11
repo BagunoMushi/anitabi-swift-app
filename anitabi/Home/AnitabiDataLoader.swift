@@ -24,6 +24,10 @@ struct AnitabiDataset: Sendable {
     var modifiedByBangumi: [Int: Double] = [:]
     /// 地標の詳細（g0-g6）までマージ済みか。
     var hasDetails: Bool
+    /// 全分割がサーバ側と同じ世代か。取得に失敗して古いキャッシュで代替した分割が
+    /// 1 つでもあれば false —— 呼び出し側は `modified` を保存してはいけない（保存すると
+    /// 次回以降「手元は最新」と誤判定して、その分割が永久に古いままになる）。
+    var detailsAreCurrent: Bool = true
 }
 
 // MARK: - ローダー
@@ -31,17 +35,33 @@ struct AnitabiDataset: Sendable {
 actor AnitabiDataLoader {
     static let shared = AnitabiDataLoader()
 
-    // `www.anitabi.cn` は 2026-08 時点で応答しない。`ww.` が正常な配信ホスト。
-    private static let origin = "https://ww.anitabi.cn"
+    /// 配信ノード。先頭から順に試し、応答したノードをそのプロセスの間は使い続ける。
+    /// - `ww.anitabi.cn` … 本命。
+    /// - `w.junreimap.com` … ミラー。2026-08 時点で `ww.` と同一内容（作品 1507 件・`modified` 一致）。
+    /// - `www.anitabi.cn` … 2026-08 時点では接続自体できないが、復活したら使えるので最後に置く。
+    private static let origins = [
+        "https://ww.anitabi.cn",
+        "https://w.junreimap.com",
+        "https://www.anitabi.cn",
+    ]
+    /// 直近に応答したノード。1 回のフェッチで当たったノードを以降の既定にして、
+    /// 死んでいるノードへの往復を毎回繰り返さないようにする。
+    private var preferredOriginIndex = 0
     private let detailShardCount = 7  // g0 … g6
 
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.default
         config.httpAdditionalHeaders = ["Accept": "*/*"]
         config.requestCachePolicy = .reloadIgnoringLocalCacheData  // `d` 側でキャッシュ制御する
-        config.timeoutIntervalForRequest = 30
+        // パケット間の無通信タイムアウト。全ノード試して詰まっても最悪 45 秒で諦める。
+        config.timeoutIntervalForRequest = 15
         return URLSession(configuration: config)
     }()
+
+    /// 現在採用しているノード（スプライト画像の絶対 URL 組み立てにも使う）。
+    private var preferredOrigin: String {
+        Self.origins[min(preferredOriginIndex, Self.origins.count - 1)]
+    }
 
     // MARK: キャッシュバスター
 
@@ -91,16 +111,23 @@ actor AnitabiDataLoader {
 
         var details: [String: PointDetail] = [:]
         var modifiedByBangumi: [Int: Double] = [:]
+        var usedStaleShard = false
         for shard in 0..<detailShardCount {
             let data: Data?
             if detailsAreFresh, let cached = cachedData(for: .details(shard)) {
                 data = cached
+            } else if let fetched = try? await fetch(path: "/d/g\(shard).json", buster: buster) {
+                store(fetched, for: .details(shard))
+                data = fetched
             } else {
-                data = try? await fetch(path: "/d/g\(shard).json", buster: buster)
-                if let data { store(data, for: .details(shard)) }
+                // 取れなければ古いキャッシュで代替する。詳細（名前・剧照）が丸ごと欠けた
+                // 地標を出すより、1 世代古い詳細を出す方がまし。
+                log.warning("g\(shard).json の取得に失敗（古いキャッシュで代替）")
+                data = cachedData(for: .details(shard))
+                usedStaleShard = true
             }
             guard let data else {
-                log.warning("g\(shard).json の取得に失敗（この分割はスキップ）")
+                log.warning("g\(shard).json はキャッシュも無いため今回はスキップ")
                 continue
             }
             Self.parsePointDetails(data, into: &details, modified: &modifiedByBangumi)
@@ -109,6 +136,7 @@ actor AnitabiDataLoader {
         Self.merge(details: details, into: &dataset.points)
         dataset.modifiedByBangumi = modifiedByBangumi
         dataset.hasDetails = !details.isEmpty
+        dataset.detailsAreCurrent = !usedStaleShard
         return dataset
     }
 
@@ -134,13 +162,15 @@ actor AnitabiDataLoader {
     /// スプライト画像本体のダウンロードは本メソッドの範囲外（次段の `BangumiIconSprite` が担当）。
     func loadIconIndex() async -> (ids: [Int], spriteURL: URL)? {
         let buster = Self.cacheBuster
+        // `src` は相対パスなので、**今 応答したノード**を基準に絶対 URL へ直す。
         if let data = try? await fetch(path: "/d/bangumi-icons.json", buster: buster),
-           let result = Self.parseIconIndex(data) {
+           let result = Self.parseIconIndex(data, origin: preferredOrigin) {
             store(data, for: .icons)
             return result
         }
         log.warning("bangumi-icons.json の取得に失敗（キャッシュへフォールバック）")
-        if let cached = cachedData(for: .icons), let result = Self.parseIconIndex(cached) {
+        if let cached = cachedData(for: .icons),
+           let result = Self.parseIconIndex(cached, origin: preferredOrigin) {
             return result
         }
         return nil
@@ -148,8 +178,30 @@ actor AnitabiDataLoader {
 
     // MARK: ネットワーク
 
+    /// 採用中のノードから順に全ノードを試す。1 つでも 2xx を返せばそれを採用ノードに昇格させ、
+    /// 全滅した時だけ throw する（呼び出し側はそこでディスクキャッシュに退避する）。
     private func fetch(path: String, buster: String) async throws -> Data {
-        guard let url = URL(string: "\(Self.origin)\(path)?d=\(buster)") else {
+        let order = (0..<Self.origins.count).map { (preferredOriginIndex + $0) % Self.origins.count }
+        var lastError: Error = AnitabiDataError.badStatus(path)
+
+        for index in order {
+            do {
+                let data = try await fetch(path: path, buster: buster, originIndex: index)
+                if index != preferredOriginIndex {
+                    log.info("配信ノードを \(Self.origins[index]) に切り替えました")
+                    preferredOriginIndex = index
+                }
+                return data
+            } catch {
+                log.warning("\(Self.origins[index])\(path) が使えません：\(error.localizedDescription)")
+                lastError = error
+            }
+        }
+        throw lastError
+    }
+
+    private func fetch(path: String, buster: String, originIndex: Int) async throws -> Data {
+        guard let url = URL(string: "\(Self.origins[originIndex])\(path)?d=\(buster)") else {
             throw AnitabiDataError.malformed(path)
         }
         let (data, response) = try await session.data(from: url)
@@ -401,8 +453,8 @@ extension AnitabiDataLoader {
     }
 
     /// `{ "src": "/d/bangumi-icons.webp?v=hash", "ids": [id, ...] }`。
-    /// `src` は相対パスで来るため配信ホスト基準の絶対 URL に直す。
-    static func parseIconIndex(_ data: Data) -> (ids: [Int], spriteURL: URL)? {
+    /// `src` は相対パスで来るため、渡された配信ノード基準の絶対 URL に直す。
+    static func parseIconIndex(_ data: Data, origin: String) -> (ids: [Int], spriteURL: URL)? {
         guard
             let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let src = root["src"] as? String,
@@ -411,7 +463,7 @@ extension AnitabiDataLoader {
             log.error("bangumi-icons.json を読めませんでした")
             return nil
         }
-        guard let url = absoluteDPath(src) else { return nil }
+        guard let url = absoluteDPath(src, origin: origin) else { return nil }
         let ids = rawIDs.compactMap { value -> Int? in
             switch value {
             case let v as Int: v
@@ -423,8 +475,8 @@ extension AnitabiDataLoader {
         return (ids: ids, spriteURL: url)
     }
 
-    /// `/d/...` の相対パスを配信ホスト基準の絶対 URL にする。
-    private static func absoluteDPath(_ path: String) -> URL? {
+    /// `/d/...` の相対パスを指定ノード基準の絶対 URL にする。
+    private static func absoluteDPath(_ path: String, origin: String) -> URL? {
         if path.hasPrefix("http://") || path.hasPrefix("https://") {
             return URL(string: path)
         }
