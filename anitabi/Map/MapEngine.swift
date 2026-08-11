@@ -221,9 +221,24 @@ enum MapRevealLadder {
 
     // MARK: 劇照の揭示
 
-    /// ブラウズ時の大カード（Web `points-image`）が出るズーム。
+    /// 大カード（Web `points-image`）の絵に切り替わるズーム。
     /// `4b970b29.js:2325-2331`：`zoom <= 18` ではデータを毎回空にする＝**18 を超えたときだけ**出る。
+    /// ここは web のまま —— 変えたのは「劇照が出始める線」だけ（`photoRevealZoom`）。
     static let photoCardZoom: Double = 18
+
+    /// ブラウズ時に劇照が**出始める**ズーム。**web から意図的に離れる**：web はブラウズ中
+    /// `z ≤ 18` で劇照を 1 枚も出さない（`points-image` は z>18 のみ、小泡は作品選択時のみ）。
+    ///
+    /// 根拠はユーザー指示（2026-08-11）：「定位钮を押した高さで劇照が見えてほしい。今は
+    /// とても大きく寄せないと見えない」。定位は `.userLocation(span: 0.01)` ＝
+    /// 画面幅 402pt で z≈15.8（375pt の機種でも 15.7）。一覧から点を選ぶ最遠の
+    /// `MapCameraPlanner.flyZoom` も z15 なので、両方の着地点を拾える 15 に置く。
+    ///
+    /// 密度は下げても破綻しない —— 間引きは priority 閾値（`photoCardPriorityThreshold`）と
+    /// MapKit の衝突回避（劇照標は `collisionMode = .rectangle` ＋ 孤立度の `displayPriority`）が
+    /// 担うので、混んでいる場所では孤立した標だけが残る。
+    /// 絵は z18 までは小泡（50×38）で、大カードに化けるのは従来どおり z>18（`PointMarkerView`）。
+    static let photoRevealZoom: Double = 15
 
     /// 大カードの priority 閾値。`4b970b29.js:2333` の `Math.pow(2, 19 - o) * 3` そのまま
     /// （点の priority ＝ 最近傍までの距離 m がこれ**以上**なら出す）。
@@ -296,10 +311,11 @@ struct MapPointPlan: Sendable {
     let point: ScenePoint
     /// 劇照サムネイル形態で出すか。
     ///
-    /// 判定は Web の 2 層をそのまま合成したもの（`MapEngine.photoForms`）：
+    /// 判定は `MapEngine.photoForms`（Web の 2 層 ＋ ブラウズ時の前倒し）：
     /// - z > 18 ＝ `points-image`（大カード）。画像あり ＋ `priority ≥ 3·2^(19−z)`。
     /// - z ≤ 18 かつ作品モード ＝ `bangumi-points-theme`（小泡）。作品内で測り直した
     ///   最近傍距離が揭示阶梯を超えるもの。
+    /// - z > 15（`photoRevealZoom`）のブラウズ ＝ 小泡。閾値は大カードと同じ式（web にはない層）。
     /// どちらの絵で描くかは `PointMarkerView` がズームから決める（Web の層分けと同じ境目 z18）。
     let usesPhoto: Bool
 }
@@ -509,7 +525,7 @@ actor MapEngine {
 
     // MARK: 形態の割り当て
 
-    /// 「どの点を劇照で出すか」を Web の 2 層そのままに決める。
+    /// 「どの点を劇照で出すか」を決める。土台は Web の 2 層、**出始める線だけ手前に倒してある**。
     ///
     /// Web には劇照の層が 2 枚あり、**z18 でバトンを渡す**：
     ///
@@ -518,7 +534,10 @@ actor MapEngine {
     /// | `points-image`（`4b970b29.js:2322-2398`） | `z > 18` のみ（18 以下はデータを毎回空にする） | 画像あり ＋ `priority ≥ 3·2^(19−z)` | 80×60pt ＋ 尾 7pt |
     /// | `bangumi-points-theme`（`37476042.js:236-303`） | `maxzoom: 18` ＝ z18 未満。かつ**作品を選んでいるときだけ**（ブラウズ中は `J()` で空にされる） | 揭示阶梯（作品内で測り直した最近傍距離 m） | 50×38pt ＋ 尾 6.5pt |
     ///
-    /// つまり **ブラウズ中に z≤18 で劇照は 1 枚も出ない**。以前の実装の z≥16.5 は根拠が無かった。
+    /// つまり web ではブラウズ中に z≤18 で劇照が 1 枚も出ない。**ここは意図的に外す**（同指示
+    /// 2026-08-11）：ブラウズでも `photoRevealZoom`（z15）から劇照を出す。判定は大カードと
+    /// **同じ priority 式**を続けて使うので、z18 を跨いでも「出る／出ない」の境目は連続し、
+    /// 変わるのは絵の寸法だけ（小泡 → 大カード。切り替えは `PointMarkerView`）。
     ///
     /// z18 ちょうどは Web だとどちらの層も出ない（`<= 18` と `maxzoom: 18` の隙間）が、
     /// 深リンクで z=18.0 に着地したときに劇照が消える方が事故なので、こちらは小泡側に寄せる。
@@ -531,9 +550,14 @@ actor MapEngine {
             return selected.map { MapPointPlan(point: $0, usesPhoto: false) }
         }
 
+        // 全点の priority で間引く経路（大カードと、ブラウズ時の小泡）。作品モードは z18 以下では
+        // 下の「作品内で測り直す」経路を使う —— そちらの方が同じ作品の点を多く残せる。
+        let usesGlobalPriority = request.zoom > MapRevealLadder.photoCardZoom
+            || (filterIDs == nil && request.zoom > MapRevealLadder.photoRevealZoom)
+
         var eligible: [(offset: Int, rank: Int)] = []
-        if request.zoom > MapRevealLadder.photoCardZoom {
-            // `points-image` 相当。作品モードでもここは同じ（Web も z>18 では大カードに合流する）。
+        if usesGlobalPriority {
+            // `points-image` 相当。作品モードでも z>18 はここに合流する（Web も同じ）。
             let threshold = MapRevealLadder.photoCardPriorityThreshold(zoom: request.zoom)
             for (offset, point) in selected.enumerated()
             where point.image != nil && Double(point.priority) >= threshold {
