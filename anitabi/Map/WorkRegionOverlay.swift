@@ -2,11 +2,9 @@
 //  WorkRegionOverlay.swift
 //  anitabi
 //
-//  作品モードの圧暗レイヤー。作品の点群の凸包を約 1km 膨らませ、その**外側だけ**を暗くする。
-//  実装は「世界矩形を外環・凸包を内環に持つ 1 枚の MKPolygon」。MKPolygonRenderer は
-//  interiorPolygons を even-odd の穴として描くので、これだけで反転マスクになる。
-//
-//  暗幕の外をタップ＝作品モードの終了、という導線もここの内外判定に乗せる。
+//  作品モードの圧暗レイヤー。点群の凸包を約 1km 膨らませ、その**外側だけ**を暗くする。実装は
+//  「世界矩形を外環・凸包を内環に持つ 1 枚の MKPolygon」—— renderer が内環を even-odd の穴として
+//  描くので、これだけで反転マスクになる。暗幕の外のタップ判定もここに乗る。
 //
 
 import MapKit
@@ -19,13 +17,8 @@ final class WorkRegionOverlay: MKPolygon {
     /// 作品のテーマ色。Web 版は暗幕（fill 0.5）も縁取り線もテーマ色で描く。
     var themeColor: UIColor = .black
 
-    /// 点群から圧暗レイヤーを作る。作れない場合は nil。
-    ///
-    /// Web 版 `Yo()` の忠実な移植：
-    /// 1. **判定範囲ガード** —— 1 点でも lng 0–153 / lat 20–45 の外にある作品は領域を描かない
-    ///    （Web は空ポリゴンを流す。海外点を含む作品で巨大な枠が出るのを防ぐ仕様）。
-    /// 2. `turf.convex()` → `turf.buffer(1000m)` —— 凸包の**真バッファ**（各辺を法線方向へ
-    ///    平行移動し、頂点は円弧で継ぐ）。重心押し出しの近似ではない。
+    /// 点群から圧暗レイヤーを作る。作れない場合は nil。Web 版 `Yo()` の移植で、判定範囲外の点を
+    /// 含む作品は描かず（海外点で巨大な枠が出るのを防ぐ）、あとは凸包の真バッファを取る。
     static func make(for coordinates: [CLLocationCoordinate2D], bufferMeters: Double = 1_000) -> WorkRegionOverlay? {
         guard let hull = hull(for: coordinates, bufferMeters: bufferMeters) else { return nil }
 
@@ -43,13 +36,8 @@ final class WorkRegionOverlay: MKPolygon {
     }
 
     /// 圧暗レイヤーが**実際に描く**多角形の頂点（`make(for:)` の内環そのもの）。
-    ///
-    /// カメラのフィット（`RootView.refitWork`）はこれと**同じ頂点**を使う。別の点集合で組むと
-    /// 枠が画面に収まらない（実機で発生：`MapCameraPlanner.fitRect` は離群点を切り捨てるので、
-    /// 浜松〜上信越に散る作品では枠の半分が画面外に出たままフィット完了になっていた）。
-    ///
-    /// `nil` を返すのは「圧暗レイヤーも描かれない」場合と一致する（判定範囲外・頂点 3 未満）。
-    /// 呼び出し側はそのとき従来の点群フィットへ落ちればよい。
+    /// カメラのフィットもこれと**同じ頂点**を使う —— 別の点集合で組むと枠が画面に収まらない。
+    /// `nil` は「圧暗レイヤーも描かれない」場合（判定範囲外・頂点 3 未満）と一致する。
     static func hull(
         for coordinates: [CLLocationCoordinate2D],
         bufferMeters: Double = 1_000
@@ -196,16 +184,12 @@ final class WorkRegionOverlay: MKPolygon {
 // MARK: - 描画
 
 final class WorkRegionRenderer: MKPolygonRenderer {
-    /// Web 版の縁取り線幅は `2^(zoom-9)` px の階段 —— 換算すると**地面幅ほぼ一定（約 250m）**の
-    /// 太い帯である（z10:2px×124m/px ≒ z15:64px×3.9m/px ≒ 250m）。MKOverlayPathRenderer の
-    /// `lineWidth` はスクリーン固定幅なので使わず、描画コンテキスト（単位＝マップポイント）に
-    /// 直接地面幅を流し込んで同じ挙動を得る。
-    /// 250m（Web 換算値）は手機の画面では太すぎるとのフィードバックにより 100m へ。
-    /// z13 で約 6pt、z15 で約 26pt —— 見えるが主張しすぎない太さ。
+    /// 縁取りは**地面幅一定**の帯にする（Web の `2^(zoom-9)` px の階段を換算すると約 250m 一定）。
+    /// `MKOverlayPathRenderer.lineWidth` はスクリーン固定幅なので使わず、描画コンテキスト
+    /// （単位＝マップポイント）に地面幅を直接流し込む。250m は手機では太すぎるので 100m。
     private static let edgeGroundWidthMeters: Double = 100
 
-    /// 近接ズームでの暴走防止：Web は z15 で 64px まで太るが、手機では画面を食いすぎるので
-    /// スクリーン上の最大幅を 14pt にクランプする。
+    /// 近接ズームでの暴走防止（地面幅一定のままだと画面を食い尽くす）。
     private static let maxScreenWidthPoints: Double = 14
 
     override func applyStrokeProperties(to context: CGContext, atZoomScale zoomScale: MKZoomScale) {

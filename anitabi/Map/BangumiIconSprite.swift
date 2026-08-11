@@ -2,12 +2,9 @@
 //  BangumiIconSprite.swift
 //  anitabi
 //
-//  作品標の丸アイコン（`/d/bangumi-icons.webp`）。1 枚のスプライトに全作品のアイコンが
-//  60×60 セル・1 行 20 個で並んでおり、`bangumi-icons.json` の `ids` 配列の**並び順**が
-//  そのままセル番号になる。
-//
-//  切り出しは `CGImage.cropping(to:)`（元画像を参照するだけでピクセルを複製しない）で行い、
-//  UIImage は要求された作品ぶんだけ遅延生成する。1500 作品を先に全部切ると 20MB 超になる。
+//  作品標の丸アイコン。1 枚のスプライトに 60×60 セル・1 行 20 個で並び、`bangumi-icons.json` の
+//  `ids` 配列の**並び順**がそのままセル番号になる。切り出しは `CGImage.cropping(to:)`（ピクセルを
+//  複製しない）で、UIImage は要求された作品ぶんだけ作る —— 全部先に切ると 20MB 超。
 //
 
 import OSLog
@@ -95,7 +92,10 @@ final class BangumiIconSprite {
     /// スプライトは数 MB ある。オフライン起動でも作品標が丸アイコンのままであってほしいので、
     /// `URLCache` 任せにせず自前でファイルに落としておく。
     private static func fetchSheet(url: URL) async -> UIImage? {
-        if let data = try? Data(contentsOf: cacheFileURL), let image = UIImage(data: data) {
+        let cacheFile = AnitabiDataLoader.cacheDirectory?
+            .appendingPathComponent("bangumi-icons.img")
+
+        if let cacheFile, let data = try? Data(contentsOf: cacheFile), let image = UIImage(data: data) {
             return image
         }
         guard
@@ -106,16 +106,7 @@ final class BangumiIconSprite {
             log.warning("アイコンシートの取得に失敗：\(url.absoluteString)")
             return nil
         }
-        try? data.write(to: cacheFileURL, options: .atomic)
+        if let cacheFile { try? data.write(to: cacheFile, options: .atomic) }
         return image
-    }
-
-    private static var cacheFileURL: URL {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("anitabi-data", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: base.path) {
-            try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        }
-        return base.appendingPathComponent("bangumi-icons.img")
     }
 }

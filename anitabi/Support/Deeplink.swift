@@ -2,36 +2,22 @@
 //  Deeplink.swift
 //  anitabi
 //
-//  外部からの着地点を 1 つの値型に集約する。受け口は 2 つ ——
-//
-//      anitabi://map?bangumiId=…&pid=…&c=lng,lat&z=…&bids=…
-//      https://(www|ww).anitabi.cn/map?…（同じクエリ）
-//
-//  `https://anitabi.cn/map` も宛先として受ける（301 で www へ飛ぶ死んだドメインだが、
-//  Universal Link の AASA は `anitabi.cn` 側に置かれる想定なので着地だけは拾う。
-//  実際にページを開くときの `pageHost` は `AnitabiWebLink` が別途 `ww.anitabi.cn` に決め打つ）。
-//
-//  Associated Domains（AASA）は外部依存につき本段では設定しない —— `anitabi://` scheme が
-//  常に効く保底線（計画書 A6 の記載どおり）。
-//
-//  同じ値は「状態復元」（バックグラウンド遷移時に UserDefaults へ Codable で保存）にも使うため、
-//  `Codable` にしてある。`CLLocationCoordinate2D` はそのまま `Codable` ではないので、
-//  緯度・経度をバラして自前でエンコードする。
+//  外部からの着地点を 1 つの値型に集約する（受け口は `anitabi://map?…` と web の `/map?…`）。
+//  同じ値は状態復元（UserDefaults へ保存）にも使うので `Codable` —— `CLLocationCoordinate2D` は
+//  `Codable` ではないので緯度・経度をバラして自前で書く。
 //
 
 import CoreLocation
 import Foundation
 
-// `CLLocationCoordinate2D` は `Equatable` に適合しないため、`Equatable` は付けない
-// （どこからも `==` で比較していないので、無理に用意する理由も無い）。
 struct MapDeepLink: Codable {
 
     /// 作品モードへ入る Bangumi ID（web `bangumiId`）。
     var bangumiID: Int?
     /// 選択する地標 ID（web `pid`）。
     var pointID: String?
-    /// カメラ中心。**web と同じく経度が先**（`c=lng,lat`）——ここだけ緯度経度が逆順なので、
-    /// 呼び出し側で並びを間違えないよう `CLLocationCoordinate2D` に変換済みの形で持つ。
+    /// カメラ中心。URL 上は**web と同じく経度が先**（`c=lng,lat`）だが、並びを間違えないよう
+    /// ここでは変換済みの形で持つ。
     var center: CLLocationCoordinate2D?
     /// ズーム（web `z`）。
     var zoom: Double?
@@ -52,8 +38,7 @@ struct MapDeepLink: Codable {
         self.bids = bids
     }
 
-    /// 何も持たない（＝着地先が無い）かどうか。恢复/Handoff の両方でこれを見て
-    /// 「保存する価値が無い」「適用する意味が無い」を判定する。
+    /// 何も持たない（＝着地先が無い）かどうか。状態復元も Handoff もこれを見て黙る。
     var isEmpty: Bool {
         bangumiID == nil && pointID == nil && center == nil && bids.isEmpty
     }
@@ -63,10 +48,8 @@ struct MapDeepLink: Codable {
     private static let customScheme = "anitabi"
     private static let webHosts: Set<String> = ["anitabi.cn", "www.anitabi.cn", "ww.anitabi.cn"]
 
-    /// 受け入れる URL 形式に合わなければ `nil`。パラメータが 1 つも読めなくても `nil`
-    /// （＝「map 宛てだが何も指定していない」は「着地点なし」と同じ扱いにする）。
-    /// 個々のパラメータは壊れていても黙って捨てる（crash させない）——実測 URL は
-    /// 手で組み立てたり共有アプリを経由したりで壊れることが普通にある。
+    /// 受け入れる形式に合わない／パラメータが 1 つも読めないときは `nil`。個々のパラメータは
+    /// 壊れていても黙って捨てる —— 共有アプリを経由した URL は普通に壊れる。
     init?(url: URL) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
 
@@ -119,9 +102,9 @@ struct MapDeepLink: Codable {
         self.bids = bids
     }
 
-    // MARK: - 発射（共有・Handoff・状態復元の書き出しに共通）
+    // MARK: - 発射（共有・Handoff・状態復元に共通）
 
-    /// `AnitabiWebLink` と同じホスト方針（`ww.anitabi.cn`）で吐く web URL。`c` は小数 4 桁。
+    /// `AnitabiWebLink` と同じホスト方針で吐く web URL。
     var canonicalURL: URL {
         AnitabiWebLink.canonical(bangumiID: bangumiID, pointID: pointID, coordinate: center, zoom: zoom, bids: bids)
     }
@@ -160,8 +143,8 @@ struct MapDeepLink: Codable {
 
     // MARK: - 状態復元（バックグラウンド遷移時に保存 → コールドスタートで読む）
 
-    /// baseStyle/isPhotoLayerVisible は既に `@AppStorage` で別途永続化されているので、
-    /// ここで持つのは「どこを見ていたか」（カメラ／選択／フィルタ）だけ。
+    // baseStyle 等は `@AppStorage` で別途永続化されるので、ここで持つのは
+    // 「どこを見ていたか」（カメラ／選択／フィルタ）だけ。
     private static let persistKey = "map.restoredDeepLink"
 
     static func loadPersisted() -> MapDeepLink? {

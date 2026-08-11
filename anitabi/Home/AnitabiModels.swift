@@ -2,35 +2,21 @@
 //  AnitabiModels.swift
 //  anitabi
 //
-//  anitabi 静的データ（/d/g.json・/d/g0-g6.json）のモデル。
-//  フィールドは位置ベースの配列で降ってくるため、レイアウトは docs/anitabi-map-api.md と
-//  docs/anitabi-web-full-analysis.md §3.2 の解析結果に準拠する。
+//  anitabi 静的データ（/d/g.json・/d/g0-g6.json）のモデル。フィールドは位置ベースの配列で
+//  降ってくるので、並びは `AnitabiDataLoader` のパーサのコメントを唯一の出所とする。
 //
 
 import CoreLocation
 import SwiftUI
-import UIKit
 
 // MARK: - 作品
 
-/// `/d/g.json` の 1 レコード（18 フィールドの配列）。
-///
-/// ```
-/// [id, cn, en, title, city, color, cover, score, cat, lat, lng, zoom,
-///  points(4 個ずつ: id, lat, lng, priority), abbr, tags[], priority, icon, tAbbr]
-/// ```
-///
-/// フィールド位置は `docs/anitabi-web-full-analysis.md` §3.2 の JS 側変数名
-/// （`kD()`）に準拠。ただし idx7 は同ドキュメントの変数名では `fade` だが、
-/// `docs/anitabi-map-api.md` §3.2 の実データ（`7.8, // 評分`）と一致させ
-/// `score`（Bangumi 評点）として扱う。
+/// `/d/g.json` の 1 レコード（18 フィールドの配列）。並びは `parseBangumiList` 参照。
 struct BangumiLite: Identifiable, Sendable {
     let id: Int
     /// 中文名
     let cn: String?
-    /// 英語名（idx2）。多くの作品は未設定。
-    /// `let` に既定値を付けると合成メンバーワイズ init からパラメータごと消えるため `var` にする
-    /// （`hasIcon` と同じ理由）。
+    /// 英語名（idx2）。既定値付きの `let` は合成 init からパラメータごと消えるので `var`。
     var en: String? = nil
     /// 原題（多くは日本語）
     let title: String?
@@ -40,7 +26,7 @@ struct BangumiLite: Identifiable, Sendable {
     let colorHex: String?
     /// 封面パス（`/images/bangumi/{id}.jpg` など）
     let cover: String?
-    /// Bangumi 側の評点（idx7）。
+    /// Bangumi 側の評点（idx7）
     var score: Double? = nil
     /// 分類（TV / 劇場版 / 漫画系列 / ゲーム …）
     let cat: String?
@@ -52,7 +38,7 @@ struct BangumiLite: Identifiable, Sendable {
     var abbr: String? = nil
     /// 表示優先度（idx15）。値が小さいほど優先。未設定は 999（Web 版と同じ既定値）。
     var priority: Int = 999
-    /// `bangumi-icons.json` の `ids` に含まれるか（データ組み立て後に `AnitabiStore` が回填）。
+    /// `bangumi-icons.json` の `ids` に含まれるか（`AnitabiStore` が後から回填する）。
     var hasIcon: Bool = false
 
     /// 表示名。UI 言語に合わせて中文名 / 原題を選ぶ。
@@ -65,22 +51,11 @@ struct BangumiLite: Identifiable, Sendable {
 
     /// 地図ピン・カバー代替に使うテーマカラー。取得できない作品はニュートラルな灰にする。
     var themeColor: Color {
-        colorHex.flatMap(Color.init(cssHex:)) ?? Color(hex: 0x8A8A6F)
+        colorHex.flatMap(Color.init(cssHex:)) ?? .anitabiNeutralTheme
     }
 
-    /// カバー画像が無いときに敷くグラデーション（設計稿のプレースホルダーと同じ表現）。
-    var themeGradient: LinearGradient {
-        LinearGradient(
-            colors: [themeColor, themeColor.mix(with: .black, by: 0.28)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    /// 標注ラベル用の 1 文字略称。
-    var badgeLetter: String {
-        String(displayName.prefix(1))
-    }
+    /// カバー画像が無いときに敷くグラデーション。
+    var themeGradient: LinearGradient { themeColor.anitabiThemeGradient }
 
     var coverURL: URL? { AnitabiImage.url(path: cover, plan: "h160") }
 }
@@ -97,13 +72,7 @@ struct PointGeo: Sendable {
 // MARK: - 地標
 
 /// 地図に落ちる 1 点。g.json の座標に g0-g6 の詳細をマージしたもの。
-///
-/// g0-g6 側の 1 地標は 15 要素の配列。**ドキュメント（web JS 解析）とは並びが違う** ——
-/// 実データ 5 万件の型統計で確定した本当の並びは
-/// ```
-/// [id, name, folderName, isFolder, mid, uid, image, fid, ep, timecodeS, note, origin, originLink, cn, density]
-/// ```
-/// （`14:density` は未使用。詳細は AnitabiDataLoader.parsePointDetails のコメント参照。）
+/// g0-g6 側の並びは `AnitabiDataLoader.parsePointDetails` のコメント参照。
 struct ScenePoint: Identifiable, Sendable {
     let id: String
     let bangumiID: Int
@@ -116,26 +85,25 @@ struct ScenePoint: Identifiable, Sendable {
     var nameCN: String?
     /// スクリーンショットのパス
     var image: String?
-    /// 話数 / タイムコード
+    /// 話数
     var ep: String?
 
-    /// この点自身がフォルダ（グループの見出し）かどうか（idx3）。
+    /// この点自身がフォルダ（グループの見出し）かどうか。
     var isFolder: Bool = false
-    /// フォルダ名の文字列指定（idx4）。`isFolder` の点への参照（`fid`）が無い旧データ向け。
+    /// フォルダ名の文字列指定。`isFolder` の点への参照（`fid`）が無い旧データ向け。
     var folderName: String?
-    /// Google マイマップの地図 ID（idx5）。地図インポート由来かどうかの判定に使う。
+    /// Google マイマップの地図 ID。地図インポート由来かどうかの判定に使う。
     var mid: String?
-    /// 投稿者の User ID（idx6）。`AnitabiStore.usersByID` で表示名に解決する。
+    /// 投稿者の User ID。`AnitabiStore.usersByID` で表示名に解決する。
     var uid: Int?
-    /// 所属フォルダ（`isFolder` の点）の ID（idx8）。
+    /// 所属フォルダ（`isFolder` の点）の ID。
     var fid: String?
-    /// タイムコード（秒、idx10）。数値でも文字列でも来るため寛容にパースする。
+    /// タイムコード（秒）。数値でも文字列でも来るため寛容にパースする。
     var timecodeS: Int?
-    /// 備考（idx11、原 `mark`）。
+    /// 備考（原 `mark`）。
     var note: String?
-    /// 出典（idx12）。「ユーザー投稿」「地図インポート」などの文言。
+    /// 出典。「ユーザー投稿」「地図インポート」などの文言。
     var origin: String?
-    /// 出典リンク（idx13）。
     var originLink: String?
 
     var coordinate: CLLocationCoordinate2D {
@@ -149,7 +117,7 @@ struct ScenePoint: Identifiable, Sendable {
         return primary?.nilIfBlank ?? fallback?.nilIfBlank ?? ""
     }
 
-    /// 一覧のサムネイル用（設計稿の 64×36 / 58×33 に合わせて h160 で十分）。
+    /// 一覧のサムネイル用（最大 64×36 なので h160 で足りる）。
     var thumbnailURL: URL? { AnitabiImage.url(path: image, plan: "h160") }
 
     /// 「EP 3」形式のバッジ。集数が無ければ nil。
@@ -172,8 +140,7 @@ struct ScenePoint: Identifiable, Sendable {
     }
 
     /// 巡礼マナー注意の対象か（学校・図書館など、部外者が立ち入ると迷惑になりやすい場所）。
-    /// web 版の判定用正規表現をそのまま移植（大小文字を区別しない）。`nameCN` を先に見て、
-    /// 無ければ `name` を見る——阶段 6 の礼仪 sheet もこのフィールドを読む。
+    /// web 版の判定用正規表現をそのまま移植。`nameCN` を先に見て、無ければ `name`。
     var needsEtiquetteWarning: Bool {
         guard let text = nameCN?.nilIfBlank ?? name?.nilIfBlank else { return false }
         return text.range(
@@ -200,7 +167,7 @@ struct PointGroup: Identifiable {
 
 // MARK: - 画像 URL
 
-/// 画像パス → CDN URL 変換。Web 版 `XS`/`Zr`（docs/anitabi-web-full-analysis.md §3.4）の最小移植。
+/// 画像パス → CDN URL 変換。Web 版 `XS`/`Zr` の最小移植。
 enum AnitabiImage {
     static func url(path: String?, plan: String?) -> URL? {
         guard let raw = path?.nilIfBlank else { return nil }
@@ -241,26 +208,6 @@ extension String {
         return trimmed.isEmpty ? nil : trimmed
     }
 }
-
-extension Color {
-    /// テーマカラーからグラデーションを作るための素朴なブレンド。
-    func mix(with other: Color, by amount: Double) -> Color {
-        var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
-        var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
-        UIColor(self).getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
-        UIColor(other).getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
-        let t = CGFloat(max(0, min(1, amount)))
-        return Color(
-            .sRGB,
-            red: Double(r1 + (r2 - r1) * t),
-            green: Double(g1 + (g2 - g1) * t),
-            blue: Double(b1 + (b2 - b1) * t),
-            opacity: Double(a1)
-        )
-    }
-}
-
-// MARK: - 距離表示
 
 enum DistanceFormatter {
     /// 「350 m」「1.2 km」。巡礼中は m 単位の精度が要るので 1km 未満は m のまま出す。

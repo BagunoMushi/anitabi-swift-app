@@ -2,9 +2,7 @@
 //  AppIdentityPill.swift
 //  anitabi
 //
-//  `Views/ContentView.swift`（旧 WebView 殻、阶段 9 で削除）から搬出。
-//  スクリーンショット専用の透かし——ユーザーが意図して残す指定のある機能なので、
-//  UI 刷新後もそのまま `RootView` の根部に生かす。
+//  スクリーンショット専用の透かし。`RootView` の根部に置く。
 //
 
 import SwiftUI
@@ -12,10 +10,9 @@ import UIKit
 
 // MARK: - Dynamic Island 適配
 
-/// Safe Area の上端インセットから Dynamic Island のフレームを推定する。
-/// Island 搭載全機種で「島の中心 y ≈ topInset − 29pt、サイズ ≈ 126×37.3pt」が成立する
-/// （14 Pro: inset 59 / 島 y 11.3、16 Pro〜17 世代: inset 62 / 島 y 14 — いずれも実測と一致）。
-/// ノッチ機は inset ≤ 50、横向きは inset ≈ 0 になるため nil を返し、自動的に非表示になる。
+/// Safe Area の上端インセットから Dynamic Island のフレームを推定する。Island 搭載全機種で
+/// 「島の中心 y ≈ topInset − 29pt、サイズ ≈ 126×37.3pt」が成立する。
+/// ノッチ機（inset ≤ 50）と横向き（inset ≈ 0）は nil ＝ 自動的に非表示。
 func dynamicIslandFrame(topInset: CGFloat, containerWidth: CGFloat) -> CGRect? {
     guard topInset >= 51 else { return nil }
     let size = CGSize(width: 126.0, height: 37.33)
@@ -29,10 +26,9 @@ func dynamicIslandFrame(topInset: CGFloat, containerWidth: CGFloat) -> CGRect? {
 
 // MARK: - 应用标识胶囊视图
 
-/// Dynamic Island そっくりの黒いカプセルとして、島のフレームぴったりに描画する。
-/// 実機では OS が島の領域を常時黒くマスクするため肉眼では見えず、
-/// スクリーンショットにだけ「島にアプリ名が表示されている」ように写る（宣伝用透かし）。
-/// 影は付けない — 影はカプセルの外側（＝島のマスクの外側）に描画され、実機でも見えてしまうため。
+/// 島のフレームぴったりに描く黒いカプセル。実機では OS が島の領域を常時黒くマスクするので
+/// 肉眼では見えず、スクリーンショットにだけアプリ名が写る。
+/// **影は付けない** —— 影は島のマスクの外側に描かれるので実機でも見えてしまう。
 struct AppIdentityPillView: View {
     var body: some View {
         HStack(spacing: 8) {
@@ -42,8 +38,6 @@ struct AppIdentityPillView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 16, height: 16)
             }
-            // localizedInfoDictionary 経由で表示名を取得する（displayName 拡張で対応済み）。
-            // infoDictionary 直接参照だと英語/日本語表示でも中国語名が出てしまうため使わない。
             Text(Bundle.main.displayName ?? "Anitabi")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.white)
@@ -59,11 +53,9 @@ struct AppIdentityPillView: View {
 
 // MARK: - RootView 根部に貼るオーバーレイ
 
-/// GeometryReader で Safe Area を監視するため、回転すると即座に再評価される
-/// （横向きは topInset ≈ 0 → 自動非表示）。フレームは島より 2pt 内側に収めて
-/// はみ出しを構造的に防ぎ、hitTesting を切って下の地図操作を邪魔しない。
-/// 注意: `.ignoresSafeArea()` を付けると proxy.safeAreaInsets が 0 になり判定できないため、
-/// Safe Area 内に置いたまま、画面座標 → ローカル座標（y − topInset）に変換して上へ描き出す。
+/// Safe Area を `GeometryReader` で監視するので回転すると即座に再評価される（フレームは島より
+/// 2pt 内側）。**`.ignoresSafeArea()` を付けてはいけない** —— `safeAreaInsets` が 0 になって
+/// 判定できなくなる。Safe Area 内に置いたまま `y − topInset` に変換して上へ描き出す。
 struct AppIdentityPillOverlay: View {
     var body: some View {
         GeometryReader { geo in

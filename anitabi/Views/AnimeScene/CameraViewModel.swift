@@ -43,7 +43,6 @@ class CameraViewModel: ObservableObject {
     
     @Published var isSettingUp: Bool = true
     @Published var cameraPermissionDenied: Bool = false
-    @Published private(set) var isCameraReady: Bool = false
 
     // 镜头（焦段）：可用焦段档位与当前选中。模拟器无相机时为空 → UI 不显示切换器。
     @Published private(set) var availableLenses: [LensOption] = []
@@ -90,22 +89,17 @@ class CameraViewModel: ObservableObject {
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
 
-            // 已在运行：无需重复配置，仅同步状态。
-            // 避免「重拍 / 多次 onAppear / updateUIView」反复重置会话，导致预览闪烁与竞态。
+            // 已在运行：无需重复配置，仅同步状态。避免「重拍 / 多次 onAppear」反复重置会话，
+            // 导致预览闪烁与竞态。
             if self.captureSession.isRunning {
-                DispatchQueue.main.async {
-                    self.isSettingUp = false
-                    self.isCameraReady = true
-                }
+                DispatchQueue.main.async { self.isSettingUp = false }
                 return
             }
 
             DispatchQueue.main.async { self.isSettingUp = true }
 
             self.resetCaptureSession()
-
-            // 配置失败时 configureCaptureSession 内部已更新状态（isCameraReady = false），这里直接返回，
-            // 不再无条件把 isCameraReady 置为 true。
+            // 配置失败时 configureCaptureSession 内部已更新状态，这里直接返回。
             guard self.configureCaptureSession() else { return }
 
             // セッションの開始はメインスレッドで行わない
@@ -113,7 +107,6 @@ class CameraViewModel: ObservableObject {
 
             DispatchQueue.main.async {
                 self.isSettingUp = false
-                self.isCameraReady = true
                 self.setupRotationCoordinatorIfNeeded()
             }
         }
@@ -284,10 +277,9 @@ class CameraViewModel: ObservableObject {
 
             captureSession.commitConfiguration()
 
-            // 起始焦段必须在 commit 之后设置：带 sessionPreset 的会话在纳入 input 时会接管设备、
-            // 重新配置其 activeFormat，videoZoomFactor 随之被重置回 1.0（三摄上 1.0 = 超广角 0.5×）。
-            // 在 commit 之前写入会被覆盖，表现为「UI 显示 1× 但实际是 0.5×」。
-            // （三摄的 1× 广角对应 videoZoomFactor ≈ 2.0，见 buildLensOptions 的 baseZoom。）
+            // 起始焦段必须在 commit **之后**设置：会话纳入 input 时会接管设备、重配 activeFormat，
+            // videoZoomFactor 随之被重置回 1.0（三摄上 1.0 = 超广角 0.5×）。写在 commit 之前会被
+            // 覆盖，表现为「UI 显示 1× 但实际是 0.5×」。
             do {
                 try videoDevice.lockForConfiguration()
                 videoDevice.videoZoomFactor = clampZoom(initialZoom, for: videoDevice)
@@ -306,10 +298,7 @@ class CameraViewModel: ObservableObject {
     private func handleCameraSetupFailure(_ message: String) {
         print(message)
         captureSession.commitConfiguration()
-        DispatchQueue.main.async {
-            self.isSettingUp = false
-            self.isCameraReady = false
-        }
+        DispatchQueue.main.async { self.isSettingUp = false }
     }
     
     func stopSession() {

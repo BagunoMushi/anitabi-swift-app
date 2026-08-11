@@ -2,9 +2,8 @@
 //  BundleInfo.swift
 //  anitabi
 //
-//  `Views/OnboardingView.swift`（旧 UIOnboarding 版、阶段 9 で削除）から搬出。
-//  Bundle 拡張だけを独立させる —— WelcomeView・AppIdentityPill 双方から参照される
-//  共通の道具なので、どちらのファイルにも属さない `Support/` に置く。
+//  アプリ自身の表示名・アイコン・バージョン。`WelcomeView`・`AboutSheet`・
+//  `AppIdentityPill` から参照される共通の道具。
 //
 
 import UIKit
@@ -21,9 +20,9 @@ extension Bundle {
         }
     }
 
+    /// `localizedInfoDictionary` を先に見る —— `infoDictionary` だけだと常に Base（zh-Hans）の
+    /// 値になり、英語／日本語表示でも中国語名が出てしまう。
     var displayName: String? {
-        // localizedInfoDictionary は InfoPlist.strings のローカライズ済みの値を返す。
-        // infoDictionary だけだと常に Base（zh-Hans）の値になり、英語/日本語表示でも中国語名が出てしまう。
         return (localizedInfoDictionary?["CFBundleDisplayName"] as? String)
             ?? (infoDictionary?["CFBundleDisplayName"] as? String)
     }

@@ -8,22 +8,9 @@
 import UIKit
 import CoreImage
 
-/// 把 Vision 的原始抠图收拾成能直接叠到实景上的样子。两步，解决两类完全不同的毛病：
-///
-/// 1. **alpha 线性拉伸** —— 治边缘。
-///    发丝、半透明过渡处会留下一圈掺了原背景颜色的像素，alpha 偏低，落在 `alphaFloor` 以下被抹掉；
-///    同时把落在 `alphaCeiling` 以上的一律拉成完全不透明，避免置信度中等的角色整体发白发虚。
-///    上限刻意压得很低：一张剧照里主角 mask 是实的、配角往往整片只有 0.5 上下，
-///    **只压不提的曲线会把配角削没**（真机验证过，会削成半透明发白）。
-///
-/// 2. **内部填洞** —— 治大块缺失。
-///    Vision 偶尔会把角色身上一整块（衣服、肚子）误判成背景，留下一个洞。
-///    这类洞的 alpha 本来就是 0，再怎么调阈值也变不出来，只能单独补。
-///    只对**四面被角色围死**的洞生效；从腋下、衣摆缝隙通向画面外的缺失判不出来，
-///    那种交给 `CutoutPainter` 手动补。
-///
-/// 刻意不用形态学腐蚀/闭运算：腐蚀按半径无差别啃掉一圈，而剧照只有 512×288、发丝才 1~2px，
-/// 一腐蚀就没了；闭运算填洞则会把手臂与身体之间那种**本该透的缝**一起糊死。
+/// 把 Vision 的原始抠图收拾成能直接叠到实景上的样子：**alpha 线性拉伸**治发丝边缘的脏像素，
+/// **内部填洞**治被误判成背景的大块缺失。刻意不用形态学腐蚀／闭运算 —— 发丝只有 1~2px，
+/// 一腐蚀就没了；闭运算又会把手臂与身体之间本该透的缝一起糊死。
 enum SubjectMatteRefiner {
 
     /// alpha 低于此值的像素抹成全透明 —— 脏边就集中在这一档。
@@ -40,10 +27,8 @@ enum SubjectMatteRefiner {
 
     private static let context = CIContext(options: [.cacheIntermediates: false])
 
-    /// - Parameters:
-    ///   - cutout: `SubjectExtractor` 产出的原始抠图
-    ///   - source: 与 `cutout` 同尺寸的原始剧照，填洞时从这里取颜色
-    /// - Returns: 与输入**同尺寸同构图**的图像；失败时返回 `nil`，由调用方退回原图
+    /// `source` 是与 `cutout` 同尺寸的原始剧照，填洞时从它取颜色。
+    /// 返回与输入**同尺寸同构图**的图像；失败时 `nil`，由调用方退回原图。
     static func refined(_ cutout: UIImage, source: UIImage) -> UIImage? {
         guard let cutoutCG = cutout.cgImage else { return nil }
 
@@ -74,7 +59,6 @@ enum SubjectMatteRefiner {
     // MARK: - alpha 拉伸
 
     /// `alpha' = clamp((alpha - alphaFloor) / (alphaCeiling - alphaFloor))`。
-    ///
     /// 必须在**非预乘**空间做 —— 预乘状态下颜色里含着 alpha，单独改会把颜色一起改错。
     private static func stretchAlpha(of image: CIImage) -> CIImage {
         let floor = alphaFloor
@@ -93,10 +77,7 @@ enum SubjectMatteRefiner {
     // MARK: - 内部填洞
 
     /// 从四条边界对「透明区域」做 flood fill，**连不到边界的透明像素就是内部洞**。
-    ///
-    /// 比形态学闭运算准得多：手臂与身体之间的缝隙通常向外敞口，会被 flood fill 走到，
-    /// 因而不会被误填；而肚子上那种四面被角色围住的洞连不到边界，正好补上。
-    ///
+    /// 比闭运算准：向外敞口的缝隙会被 flood fill 走到而不被误填，四面被围住的洞正好补上。
     /// - Returns: 洞的像素下标；没有洞（或洞大得离谱）时返回 `nil`
     private static func interiorHoles(in pixels: [UInt8], width: Int, height: Int) -> [Int]? {
         let count = width * height
@@ -127,8 +108,7 @@ enum SubjectMatteRefiner {
             if y < height - 1 { seed(index + width) }
         }
 
-        // 按连通域逐个收集：面积上限**对单个洞生效**，一个大得离谱的洞只跳过它自己，
-        // 不会连带把其他正常的小洞一起放弃。
+        // 按连通域逐个收集：面积上限**对单个洞生效**，跳过离谱的洞时不牵连其他正常的小洞。
         let maxComponentArea = Int(Double(count) * maxHoleAreaRatio)
         var visited = reachedFromBorder
         var holes = [Int]()

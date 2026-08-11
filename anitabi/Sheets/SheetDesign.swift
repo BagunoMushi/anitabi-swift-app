@@ -2,27 +2,9 @@
 //  SheetDesign.swift
 //  anitabi
 //
-//  シート共通の寸法トークンと共有部品。
-//
-//  ============================================================================
-//  出所：設計稿「圣地巡礼卡片组件」（claude.ai/design · 2026-08-09）
-//  ============================================================================
-//
-//  ここに書いてある数値は**すべて設計稿の px**（`width: 390px` のモック上の値）で、
-//  実機では `DesignScale` が「画面の短辺 / 390 × 17/14」倍して使う。
-//  つまり比率だけが設計稿で、絶対値は端末幅に比例する（iPhone 17 Pro で ≒1.25 倍）。
-//  設計稿の px をそのまま置いた版は、広い端末で字と部品が相対的に縮んで見えるので捨てた。
-//  以前ここに置いていた「Apple マップ実測値」規格（行高 69・節見出し 20pt・動作排タイル 51pt）も
-//  設計稿の比率に**置き換えてある**（拡大後の行名は 17.5pt で、実測 17pt とほぼ一致する）。
-//
-//  外枠だけは系统の sheet のまま（同指示：「外边框跟随现在的系统 sheet」）。
-//  設計稿の「左右下 8pt 浮かせた角丸 30pt のカード」は採らず、角丸・抓手・呈现は
-//  `UISheetPresentationController` に任せて、写すのは**中身**だけにしてある。
-//
-//  字は SF Rounded（設計稿の Zen Maru Gothic に最も近い系统書体）。`SheetFont` が
-//  設計稿の px を**そのまま基準サイズ**にして `UIFontMetrics` で Dynamic Type に載せるので、
-//  既定字級では設計稿の値ぴったりになる。根の `.fontDesign(.rounded)` は
-//  系统が自前で組む字（Menu・ContentUnavailableView など）を揃えるためだけに残してある。
+//  シート共通の寸法トークンと共有部品。出所は設計稿「圣地巡礼卡片组件」（claude.ai/design）で、
+//  数値は**すべて設計稿の px**（実機の pt へは `DesignScale` が換算する）。**写すのは中身だけ**
+//  —— 角丸・抓手・呈现は `UISheetPresentationController` に任せ、外枠は系统の sheet のまま。
 //
 
 import SwiftUI
@@ -30,46 +12,23 @@ import UIKit
 
 // MARK: - 档（常駐 sheet の高さ）
 
-/// 常駐 sheet に載る 4 種類の内容それぞれの档。設計稿 t2「三段式下拉阶段」の
-/// 小 / 中 / 大 をそのまま写す。
-///
-/// **1 枚しか sheet を出さない**呈现モデル（`RootView` 参照）なので、この 4 組は
-/// 「同時に生きている 4 枚の設定」ではなく「1 枚が内容に応じて着替える 4 着」である。
-/// 着替えのとき、档の集合（`detents`）と選択中の档は必ず同じトランザクションで入れ替える。
+/// 常駐 sheet に載る 4 種類の内容それぞれの档（設計稿 t2 の 小 / 中 / 大）。**1 枚しか sheet を
+/// 出さない**呈现モデルなので、この 4 組は「1 枚が内容に応じて着替える 4 着」——
+/// 着替えのときは档の集合と選択中の档を必ず同じトランザクションで入れ替える。
 enum SheetLayout {
 
     // MARK: 最小档（設計稿「一段式」）
 
-    /// 一段式の高さは**定数で置かない**。各カードが自分の身份条の実高を測って
-    /// `compactContentHeight` preference で上げてくるので、届くまでの 1 フレームだけこの見積もりを使う。
-    ///
-    /// 定数で決め打ちしていた版は Dynamic Type・言語・系统抓手の厚みで必ずズレた。
-    /// 設計稿の「一段式 ＝ 身份条がちょうど残る高さ」を守るには実測しかない。
-    ///
-    /// 見積もりは**4 枚とも同じ**：身份条の組み立て（上インセット ＋ 行高）を全カードで
-    /// 揃えてあるので（`SheetMetrics.compactRowHeight`）、層ごとに違う値を持つ理由が無い。
-    /// 既定の字級ではこの値が実測とも一致する。
+    /// 一段式の高さは**定数で置かない** —— 各カードが身份条の実高を `compactContentHeight` で
+    /// 上げてくるので、届くまでの 1 フレームだけこの見積もりを使う（定数だと Dynamic Type・
+    /// 言語・抓手の厚みで必ずズレる）。身份条の組み立ては 4 枚で揃えてあるので値も 1 つ。
     static var compactContentFallback: CGFloat {
         SheetMetrics.topInset + SheetMetrics.compactRowHeight
     }
 
-    /// 設計稿のカードは身份条の下が **14px しかない**（`padding: 8px 14px 14px`）。
-    ///
-    /// iOS 26 の `.height(h)` の実体（iPhone 17 Pro / iOS 26.5 実測）：
-    ///
-    ///     h ≳ 120 …… 通常の浮きカード。可視高さ ＝ h ＋ 底部安全区(34)、下端は画面下 −8、
-    ///                左右 8pt 内側（全体が 386/402 ≒ 0.96 倍で描かれる）。
-    ///                中身の届く範囲は普通は h まで（下の 34 は home インジケータ帯）——
-    ///                `.ignoresSafeArea(.container, edges: .bottom)` を**呈现修饰の内側**に
-    ///                付けたときだけ下端まで広がる（RootView 参照）。
-    ///     h ≲ 80  …… **迷你条**（Apple マップの収起検索条と同じ浮き玉）。左右 ≒28pt 内側・
-    ///                画面下 −28 に浮き、**底部安全区は足されない**＝中身の届く範囲 ≒ h。
-    ///     その間 …… 両者の連続モーフ（比率も余白も補間される）。ここに档を置くと
-    ///                中身が画面の外へ切れる（実測）ので、**置かない**。
-    ///
-    /// 一段式は迷你条ゾーンに置く：カードが報せてくる身份条の実高（`compactBarRow` が
-    /// 上下の余白まで含めて組み立てたもの）を**そのまま**頼む。
-    /// ここで余白を足し引きしないこと —— 条の見た目は身份条の側だけで決まる。
+    /// 一段式は iOS 26 の**迷你条**（h ≲ 80）ゾーンに置く —— 通常の浮きカード（h ≳ 120）との間は
+    /// 連続モーフで、そこに档を置くと中身が画面外へ切れる。迷你条には底部安全区が足されないので
+    /// 中身の届く範囲 ≒ h。カードが報せてくる実高を**そのまま**頼み、余白を足し引きしないこと。
     static func minHeight(_ content: CGFloat) -> CGFloat {
         max(content, 1)
     }
@@ -77,44 +36,32 @@ enum SheetLayout {
     /// 中档・大档の比率を設計稿どおりの**見た目**にするための浮きぶん。
     static let floatingGap: CGFloat = 8
 
-    // MARK: 中档・大档（設計稿のモックのカード高さ ÷ 枠 720px）
+    // MARK: 中档・大档
 
-    // 設計稿 t2 の各 mock は `left:8px;right:8px;bottom:8px` のカードに **height を明示**している。
-    // その高さを枠（720px）で割った比率が、そのまま「その档で見せると決めた範囲」：
-    //
-    //     卡     两段式          三段式
-    //     首页   414 → 57.5%    664 → 92.2%
-    //     作品   400 → 55.6%    664 → 92.2%
-    //     地标   382 → 53.1%    664 → 92.2%
-    //     落针   160 → 22.2%    356 → 49.4%
-    //
-    // 一段式だけは height 無し（＝中身の高さ）なので、こちらも実測で作る（`minDetent`）。
-    // 首页・作品の二段式だけは、この表の値をさらに `secondaryShrink` 倍して使う（下記）。
+    // 比率の出所は設計稿 t2 の各 mock が明示しているカード高さ ÷ 枠 720px
+    // （首页 414・作品 400・地标 382・落针 160 / 三段式は 664・落针だけ 356）。
 
-    /// 二段目を設計稿より低くする係数（同指示 2026-08-10：「二级需要缩短 20%」）。
-    /// 設計稿の 414/400px は地図に残る帯が狭く、二段目でも点の散らばりが見えない。
-    /// 中身が足りないカードは元から `fittedHeight` で詰まるので、これが効くのは
-    /// **中身がスクロールするカード（首页・作品）だけ** —— そこが対象そのもの。
+    /// 首页・作品の二段目を設計稿より低くする係数。設計稿のままでは地図に残る帯が狭く、
+    /// 二段目でも点の散らばりが見えない。中身が足りないカードは元から `fittedHeight` で
+    /// 詰まるので、これが効くのは中身がスクロールするこの 2 枚だけ。
     static let secondaryShrink: CGFloat = 0.75
 
     static let homeFraction = 0.575 * secondaryShrink
     static let workFraction = 0.556 * secondaryShrink
-    /// 地標カードだけ設計稿のまま（同指示：「剧照不要缩减」）。このカードは一段／二段しか
-    /// 持たない（`hasExpandedStage`）ので二段目が上限＝ここを削ると剧照が切れる。
+    /// 地標カードだけ設計稿のまま。このカードは二段目が上限（`hasExpandedStage`）なので、
+    /// ここを削ると剧照が切れる。
     static let pointFraction = 0.531
-    /// 落針カードの 2 段目は設計稿でいちばん浅い（頭部 ＋ 動作排 ＋ 注記でぴったり）。
-    /// ここを深くすると、中身が足りずカードの下がまるごと空く。
+    /// 落針カードの二段目は頭部 ＋ 動作排 ＋ 注記でぴったり。深くすると下がまるごと空く。
     static let droppedPinFraction = 0.222
 
-    /// 三段式。**`.large` は使わない** —— 設計稿は 664/720 ＝ 92.2% で、上に地図を一截残す
-    /// 設計になっている（`.large` は画面をほぼ埋めてその余白を潰してしまう）。
+    /// 三段式。**`.large` は使わない** —— 上に地図を一截残す設計なので、画面をほぼ埋める
+    /// `.large` ではその余白が潰れる。
     static let largeFraction = 0.922
-    /// 落針カードだけ 3 段目も浅い（最近点 3 行まで出せば終わり。設計稿 2d「落针卡不需要全屏」）。
+    /// 落針カードだけ三段目も浅い（最近点 3 行まで出せば終わり）。
     static let droppedPinLargeFraction = 0.494
 
-    /// 比率 → 档の高さ。**`.fraction()` は使わない** —— あれの分母は「`.large` の高さ」（実測 789pt）で
-    /// 画面高（874pt）ではないので、設計稿の「画面に対する比率」を入れると約 10% 縮む。
-    /// 画面高から絶対値を出して `.height()` で渡す（画面より高い値は系统が `.large` まで丸める）。
+    /// 比率 → 档の高さ。**`.fraction()` は使わない** —— あれの分母は画面高ではなく「`.large` の
+    /// 高さ」なので、設計稿の「画面に対する比率」を入れると約 10% 縮む。
     static func height(_ fraction: CGFloat, screenHeight: CGFloat) -> CGFloat {
         fraction * screenHeight + floatingGap
     }
@@ -124,9 +71,8 @@ enum SheetLayout {
     }
 }
 
-/// いま何段目に居るか。設計稿 t2 で「档によって中身が変わる」のは 3 か所だけ
-/// （作品カードの頭部・地標カードの頭部・地標カードの剧照の高さ）なので、
-/// カード側にはこの 3 値だけを渡して、`PresentationDetent` の実体は持ち込まない。
+/// いま何段目に居るか。档で変わるのは頭部と剧照の高さだけなので、カード側にはこの 3 値を渡して
+/// `PresentationDetent` の実体は持ち込まない。
 enum SheetStage {
     /// 一段式（最小档）。身份条だけ見えている状態。
     case compact
@@ -145,14 +91,10 @@ enum SheetLayer: Int, Comparable {
     case point
     case droppedPin
 
-    /// 実測が届くまでの見積もり（4 枚とも同じ組み立てなので層で変えない）。
-    var minContentFallback: CGFloat { SheetLayout.compactContentFallback }
-
-    /// 下スワイプで落ちきる档。ここより下へは行かない（＝下スワイプでは閉じない）。
+    /// 下スワイプで落ちきる档（ここより下へは行かない＝下スワイプでは閉じない）。
     /// `measured` はカードが `compactContentHeight` で報せてきた身份条の実高。
-    /// 下スワイプで落ちきる档。`measured` はカードが報せてきた身份条の実高。
     func minDetent(measured: CGFloat?) -> PresentationDetent {
-        .height(SheetLayout.minHeight(measured ?? minContentFallback))
+        .height(SheetLayout.minHeight(measured ?? SheetLayout.compactContentFallback))
     }
 
     /// 両段式の比率（設計稿のカード高 ÷ 枠 720px）。
@@ -165,22 +107,18 @@ enum SheetLayer: Int, Comparable {
         }
     }
 
-    /// 三段式を持つか。**地標カードは持たない**（同指示 2026-08-09：「这个页面只允许一段二段」）——
-    /// 中身が両段式にそのまま収まるので、三段目は下が空くだけだった。備考が長い点だけは
-    /// 両段式の中で普通にスクロールする。
+    /// 三段式を持つか。**地標カードは持たない** —— 中身が両段式にそのまま収まるので、
+    /// 三段目は下が空くだけだった（備考が長い点は両段式の中でスクロールする）。
     var hasExpandedStage: Bool { self != .point }
 
-    /// 三段式の比率。落針カードだけ浅い（設計稿 2d「落针卡不需要全屏」）。
+    /// 三段式の比率。落針カードだけ浅い。
     var maxFraction: CGFloat {
         self == .droppedPin ? SheetLayout.droppedPinLargeFraction : SheetLayout.largeFraction
     }
 
-    /// 設計稿の比率は**上限**でしかない —— カードが「中身はここまで」と報せてきたら
-    /// （`fittedContentHeight`）そこまで詰める。
-    ///
-    /// 詰めないと、比率は固定・中身は可変なので**同じカードでも下の空きが毎回変わる**：
-    /// 地標カードの実測で、備考のある点はぴったり／無い点は两段式で 40〜100pt、
-    /// 三段式では 300pt 以上が空いた。中身が比率より高い（＝スクロールする）カードでは何も起きない。
+    /// 設計稿の比率は**上限**でしかない —— カードが `fittedContentHeight` で「中身はここまで」と
+    /// 報せてきたらそこまで詰める。詰めないと比率は固定・中身は可変なので、同じカードでも
+    /// 剧照や備考の有無で下の空きが 40〜300pt ばらつく。
     private func fittedHeight(_ fraction: CGFloat, screenHeight: CGFloat, fitted: CGFloat?) -> CGFloat {
         let design = SheetLayout.height(fraction, screenHeight: screenHeight)
         guard let fitted, fitted > 1 else { return design }
@@ -247,14 +185,9 @@ struct FittedContentHeightKey: PreferenceKey {
 }
 
 extension View {
-    /// 設計稿の一段式に相当する範囲（＝上余白込みの身份条）に付ける。
-    /// その範囲の高さがそのまま最小档の中身になる。
-    ///
-    /// `fixedSize(vertical:)` が必須：これが無いと**潰れた後の高さ**を測ってしまう。
-    /// sheet が中身より低いと SwiftUI はまず余白を削るので、
-    /// 「潰れた高さを測る → もっと低い档を作る → もっと潰れる」で固まり、
-    /// 標題が抓手と同じ行まで上がってくる（実機で確認）。
-    /// 縦は常に**中身が要求する高さ**を取らせ、档をそれに合わせる。
+    /// 設計稿の一段式に相当する範囲（＝上余白込みの身份条）に付ける。その高さが最小档になる。
+    /// `fixedSize(vertical:)` が必須 —— 無いと**潰れた後の高さ**を測ってしまい、
+    /// 「潰れた高さを測る → もっと低い档を作る → もっと潰れる」で固まる。
     func compactContentHeight(_ layer: SheetLayer) -> some View {
         fixedSize(horizontal: false, vertical: true)
             .background {
@@ -264,6 +197,30 @@ extension View {
             }
     }
 
+    /// 一段式の実高を測るためだけの不可視の複製に付ける（レイアウトには効かせない）。
+    /// 中/大档では頭部が別の形に変わるカード（作品・地標・首页）は、一段式の複製をこれで隠して測る。
+    func compactHeightProbe(_ layer: SheetLayer) -> some View {
+        environment(\.isMarqueeEnabled, false)
+            .compactContentHeight(layer)
+            .hidden()
+            .frame(height: 0, alignment: .top)
+    }
+
+    /// 一段式では身份条より下を**レイアウトからも外す**（高さ 0 に畳む）—— opacity だけで隠すと
+    /// 見えないまま場所を要求し続け、足りないぶんを SwiftUI が身份条の余白から削るので、
+    /// カードごとに数 pt 潰れて縦位置が食い違う。
+    func collapsedInCompactStage(_ stage: SheetStage) -> some View {
+        let isCompact = stage == .compact
+        return frame(height: isCompact ? 0 : nil, alignment: .top)
+            .clipped()
+            .allowsHitTesting(!isCompact)
+    }
+
+    /// スクロールする列の末尾。sheet の中身は底部安全区を無効にしてあるので自分で足し戻す。
+    func sheetScrollBottomPadding(_ inset: CGFloat) -> some View {
+        padding(.bottom, SheetMetrics.scrollBottomPadding + inset)
+    }
+
     /// 一段式の身份条。**4 枚のカードとも必ずこれを通す** —— 行高も上下の余白もここで完結するので、
     /// 迷你条の高さ・幅・浮き方・中身の位置がカードによらず同じになる。
     /// 高さは `minHeight` なので、既定の字級では 4 枚とも同値・大きな字級では一緒に伸びる。
@@ -271,14 +228,9 @@ extension View {
         modifier(CompactBarRow())
     }
 
-    /// 中身の実高を報せる（スクロールする列の**丸ごと**に付ける）。
-    ///
-    /// `expandedDelta` は「三段式で中身がどれだけ伸びるか」（地標カードなら剧照の 180→280 ぶん）。
-    /// 档で変わるのはそこだけなので、**1 回の測定から両方の档の実高が出る** —— 三段式へ伸ばす前に
-    /// その高さが分かるので、伸ばした後にもう一度縮む「二段階の動き」にならない。
-    ///
-    /// 一段式は頭部が別物（身份条）なので測っても意味が無い。そのときは何も報せず、
-    /// 受け手（RootView）は直前の値をそのまま持ち続ける。
+    /// 中身の実高を報せる（スクロールする列の**丸ごと**に付ける）。`expandedDelta` は三段式で
+    /// 中身が伸びるぶんで、档で変わるのはそこだけなので**1 回の測定から両方の档の実高が出る**。
+    /// 一段式は頭部が別物なので何も報せない（受け手は直前の値を持ち続ける）。
     func fittedContentHeight(_ layer: SheetLayer, stage: SheetStage, expandedDelta: CGFloat) -> some View {
         background {
             GeometryReader { proxy in
@@ -318,44 +270,29 @@ enum SheetMetrics {
     /// 字級で育てては困る「形」の値に使う（角丸が字と一緒に膨らむと別のデザインになる）。
     static func shape(_ designPixels: CGFloat) -> CGFloat { DesignScale.value(designPixels) }
 
-    // MARK: 余白（設計稿 `padding: 8px 14px 14px` ＋ 抓手 `margin: 4px auto 8px/10px`）
+    // MARK: 余白
 
-    // 版面余白（内容 ↔ カードの縁）はトークンを持たず **`.scenePadding(.horizontal)`** を使う。
-    // HIG の Layout margins（iPhone 16pt）を系统から受け取る側に寄せた（同指示 2026-08-09：
-    // 「边距也换成系统标准」）。設計稿の 14px を機種比で伸ばした値（17 Pro で 15.7）とは
-    // 実測 0.3pt 差しか無く、系统 sheet・Apple マップと同じ縁になる方を採る。
+    // 版面余白（内容 ↔ カードの縁）はトークンを持たず **`.scenePadding(.horizontal)`** を使う ——
+    // 設計稿の 14px を換算した値と実測 0.3pt 差しか無く、系统 sheet と同じ縁になる方を採る。
+
     /// 迷你条の身份条の上下に置く**見た目の**余白（＝可視カードの縁から見た値）。
-    /// 抓手の帯（`systemGrabberBottom`）の下と、カード下端の上に、同じ厚みでこれを置く。
-    ///
-    /// 可視カードと SwiftUI の中身の枠のズレは**定数で持たない** —— `SheetShapeReader` が
-    /// UIKit 側の `presentedView` を実測して環境値（`compactBarInsets`）で配る。
-    /// これより大きくできない：条の総高が iOS 26 の迷你条の上限（≒80。超えると
-    /// 通常カードへモーフする）に当たる。
+    /// これより大きくはできない —— 条の総高が iOS 26 の迷你条の上限（≒80。超えると通常カードへ
+    /// モーフする）に当たる。可視カードとのズレは `compactBarInsets` が実測値で配る。
     static var compactBarGap: CGFloat { scaled(10) }
-    /// 列の末尾の余白。設計稿のカードの `padding-bottom: 14px` と同値
-    /// （ここを自前で 24 にしていたぶん、最後の要素の下が余計に空いていた）。
+    /// 列の末尾の余白。設計稿のカードの `padding-bottom: 14px` と同値。
     static var scrollBottomPadding: CGFloat { scaled(14) }
 
     /// 系统が描く抓手の下端（可視カードの上端から）。実測 ≒10pt。
-    ///
-    /// **可視カードの上端＝中身の上端**（実測。`SheetLayout.minHeight` のメモ参照）。
-    /// 以前ここに居た「浮起ぶん 28pt」は、可視カードが frame より 28pt 下に浮くという
-    /// **誤った実測**への補正で、全档の頭部の上に余計な空白を作っていたので削除した。
     static let systemGrabberBottom: CGFloat = 10
 
-    /// シート上縁 → 最初のコントロール（**全カード・全档で共通**）。設計稿の規則そのまま：
-    /// **抓手の下端 ＋ 8px**（抓手 `margin: 4px auto 8px`）。
-    ///
-    /// 設計稿 2a は首页だけ 10px にしているが、その 2pt のために一段式の迷你条が
-    /// 首页と他カードで別物の高さになる（＝幅も浮き方も変わる）ので**採らない**。
+    /// シート上縁 → 最初のコントロール（**全カード・全档で共通**）。設計稿の規則そのまま
+    /// 「抓手の下端 ＋ 8px」。設計稿 2a は首页だけ 10px だが、その 2pt で一段式の迷你条が
+    /// 首页と他カードで別物の高さ（＝幅も浮き方も違う）になるので採らない。
     static var topInset: CGFloat { systemGrabberBottom + scaled(8) }
 
-    /// 一段式（迷你条）の身份条の行高。**4 枚のカードで必ずこの値に揃える。**
-    ///
-    /// iOS 26 の迷你条は档の高さで**幅も浮き方も変わる**（`SheetLayout.minHeight` のメモ）ので、
-    /// カードごとに行高が違うと「作品カードだけ一回り小さい」「地標カードだけ中身が下寄り」に
-    /// なる（実機で指摘された）。基準は設計稿 1a の検索欄と同じ 40px ——
-    /// 他カードの身份条（標題＋副題・✕ の当たり判定 44）もこの中に収まる。
+    /// 一段式（迷你条）の身份条の行高。**4 枚のカードで必ずこの値に揃える** ——
+    /// 迷你条は档の高さで幅も浮き方も変わるので、行高が違うと「作品カードだけ一回り小さい」に
+    /// なる。基準は設計稿 1a の検索欄で、他カードの身份条も ✕ の当たり判定ごとこの中に収まる。
     static var compactRowHeight: CGFloat { max(controlHeight, minimumHitTarget) }
 
     /// 節と節の間。設計稿の `margin-top: 10px`。
@@ -404,8 +341,8 @@ enum SheetMetrics {
     /// 作品カードの点行サムネイル。設計稿 `50×38` / 角丸 9。
     static var pointThumbnailSize: CGSize { DesignScale.size(width: 50, height: 38) }
     static var pointThumbnailRadius: CGFloat { shape(9) }
-    /// 地標カード一段式の迷你剧照。**身份条の行高ちょうど**（設計稿 56×42 の 4:3 は保つ）。
-    /// 行より高いとその条だけ背が伸びて、4 枚の迷你条が揃わなくなる（`compactRowHeight` 参照）。角丸 10。
+    /// 地標カード一段式の迷你剧照。**身份条の行高ちょうど**（設計稿の 4:3 は保つ）——
+    /// 行より高いとその条だけ背が伸びて、4 枚の迷你条が揃わなくなる。
     static var miniThumbnailSize: CGSize {
         let height = compactRowHeight
         return CGSize(width: (height * 4 / 3).rounded(), height: height)
@@ -421,33 +358,29 @@ enum SheetMetrics {
     static var coverRadius: CGFloat { shape(7) }
     static var infoCoverRadius: CGFloat { shape(8) }
 
-    /// 剧照大図の高さ。設計稿 2c 两段式の 180。
-    /// （三段式の 280 は使わない —— 地標カードは两段式までなので、伸びる先が無い。）
+    /// 剧照大図の高さ。設計稿 2c 两段式の 180（地標カードは两段式までなので伸びる先が無い）。
     static var mediaHeightMedium: CGFloat { shape(180) }
 
     // MARK: コントロール
 
     /// **同じ行に並ぶコントロールの背丈**（検索欄・丸釦・行末 chip）。設計稿は検索欄 40px・
-    /// 丸釦 34px と別々に書いているが、並べると段違いに見えるので丸釦側に揃える（実機で指摘）。
+    /// 丸釦 34px と別々に書いているが、並べると段違いに見えるので丸釦側に揃える。
     static var controlHeight: CGFloat { circleButtonDiameter }
-    /// 検索欄の高さ。行に並ぶ他のコントロールと同じ（上を参照）。
-    static var searchFieldHeight: CGFloat { controlHeight }
     /// 検索欄の内側の水平余白。設計稿 `padding: 10px 14px` の 14。
     static var searchFieldHorizontalPadding: CGFloat { scaled(14) }
     /// 検索欄の中の「✕」。設計稿 `width/height: 18px`。
     static var searchClearDiameter: CGFloat { scaled(18) }
     /// 分段控件の内側余白。設計稿 `padding: 5px 0`。
     static var segmentedVerticalPadding: CGFloat { scaled(5) }
-    /// 分段控件の溝（滑块の外側）。設計稿 `padding: 3px`。
-    /// 横並びのカプセル（`AnitabiCapsuleSize.rowChip`）はこの 2 つの和を縦余白に使って高さを揃える。
+    /// 分段控件の溝（滑块の外側）。設計稿 `padding: 3px`。横並びのカプセル
+    /// （`AnitabiCapsuleSize.rowChip`）はこれと上の和を縦余白に使って高さを揃える。
     static var segmentedTrackPadding: CGFloat { scaled(3) }
-    /// カード頭部の丸釦（共有・✕・首页の ⋯）。設計稿 `34px`。**4 枚とも同じ寸法**にする
-    /// —— 首页だけ検索欄と同じ 40px にしていた頃は、一段式で並べると首页の ⋯ だけ一回り大きかった。
+    /// カード頭部の丸釦（共有・✕・首页の ⋯）。設計稿 `34px`。**4 枚とも同じ寸法**にする。
     static var circleButtonDiameter: CGFloat { scaled(34) }
 
     /// 見た目 `visualSize` の部品を HIG の 44pt まで広げるときの片側の厚み。
-    /// **当たり判定に関する算術はここ 1 か所だけ**（`expandedHitTarget` と
-    /// `alignedToVisualEdge` が同じ値を使うので、両者がずれようがない）。
+    /// **当たり判定の算術はここ 1 か所だけ** —— `expandedHitTarget` と `alignedToVisualEdge` が
+    /// 同じ値を使うので両者がずれようがない。
     static func hitTargetInset(visualSize: CGFloat) -> CGFloat {
         max(0, (minimumHitTarget - visualSize) / 2)
     }
@@ -471,9 +404,9 @@ enum SheetMetrics {
     static var guidanceIconDiameter: CGFloat { scaled(34) }
     static var emptyStateIconDiameter: CGFloat { scaled(44) }
 
-    /// 備考本文の行間。設計稿 `line-height: 1.7` の 12.5px ＝ 21.25（自然 ≒15 → 上乗せ 6）。
+    /// 備考本文の行間（設計稿 `line-height: 1.7` に対する上乗せ）。
     static var noteLineSpacing: CGFloat { scaled(6) }
-    /// 礼儀カード本文の行間。設計稿 1g は `line-height: 2` の 13px（上乗せ 10）。
+    /// 礼儀カード本文の行間（設計稿 1g の `line-height: 2` に対する上乗せ）。
     static var etiquetteLineSpacing: CGFloat { scaled(10) }
 
     /// 最小タップ領域（HIG）。**ここだけは設計稿ではなく HIG の絶対値**なので拡大しない。
@@ -482,25 +415,14 @@ enum SheetMetrics {
 
 // MARK: - 字階（設計稿の px を 1:1 で持つ）
 
-/// 設計稿に書かれた font-size / font-weight を持つ字階。**px は `DesignScale` で等比拡大される**
-/// ので、ここに書いてある数値は「設計稿の値」であって実機の pt ではない。
-///
-/// **なぜ text style（`.footnote` 等）を直に使わないか**：設計稿の刻みは
-/// 10.5 / 11 / 11.5 / 12 / 12.5 / 13 / 13.5 / 14 / 16 / 17 / 18 の 11 段で、
-/// 系统 text style の 11/12/13/15/17/20 では半分が表現できない（14 が 15 に、13.5 が 13 に丸まる）。
-/// そこで `UIFontMetrics` で**設計稿の px を基準サイズとして Dynamic Type に追従させる**——
-/// 既定サイズではぴったり設計稿の値、拡大時は近い text style と同じ比率で伸びる。
-///
-/// `static var`（`let` ではない）なのは、`UIFontMetrics` が呼び出し時の
-/// trait collection を読むため —— `let` にすると初回アクセス時の字級で固まってしまう。
+/// 設計稿の font-size / weight をそのまま持つ字階（数値は設計稿の px で実機の pt ではない）。
+/// text style を直に使わないのは、設計稿の 11 段の刻みが系统の 6 段では半分表現できないため。
+/// `static var` なのは、`UIFontMetrics` が呼び出し時の trait collection を読むから。
 enum SheetFont {
 
-    /// 設計稿の px と weight から SF Rounded の Font を組む。
-    /// `relativeTo` は Dynamic Type の伸び方を借りる text style。
-    /// 組み上げた `Font` の使い回し。**キャッシュ必須**：ここは行ごと・`Text` ごとに呼ばれるので、
+    /// 組み上げた `Font` のキャッシュ。**必須** —— ここは行ごと・`Text` ごとに呼ばれるので、
     /// 毎回 `UIFont` と `UIFontMetrics` を作ると 300 行の一覧で 1 フレームに千個以上作ることになり、
-    /// スクロールも釦のタップも目に見えて重くなる（実機で確認）。
-    /// 倍率か字級が変わったら丸ごと捨てる。
+    /// スクロールも釦のタップも目に見えて重くなる。倍率か字級が変わったら丸ごと捨てる。
     private struct FontKey: Hashable {
         var size: CGFloat
         var weight: CGFloat
@@ -512,6 +434,8 @@ enum SheetFont {
     private static var cacheFactor: CGFloat = 0
     private static var cacheCategory: UIContentSizeCategory = .unspecified
 
+    /// 設計稿の px と weight から SF Rounded の Font を組む。
+    /// `relativeTo` は Dynamic Type の伸び方を借りる text style。
     private static func design(
         _ size: CGFloat,
         _ weight: UIFont.Weight = .regular,
@@ -529,8 +453,7 @@ enum SheetFont {
         let key = FontKey(size: size, weight: weight.rawValue, style: style.rawValue, monospaced: monospaced)
         if let hit = cache[key] { return hit }
 
-        // 設計稿の px を機種に合わせて等比拡大してから（`DesignScale`）、
-        // さらに `UIFontMetrics` で Dynamic Type に載せる。
+        // 設計稿の px を機種比で拡大してから、`UIFontMetrics` で Dynamic Type に載せる。
         let pointSize = size * factor
         let system = UIFont.systemFont(ofSize: pointSize, weight: weight)
         let descriptor = system.fontDescriptor.withDesign(monospaced ? .monospaced : .rounded)
@@ -610,19 +533,9 @@ enum SheetFont {
     static var mediaBadge: Font { design(10.5, .bold, relativeTo: .caption2, monospaced: true) }
 }
 
-/// 一段式の身份条の枠。上下の余白を「**可視カードの縁からの見た目**」で決める。
-///
-/// 中身の枠（SwiftUI が見ている矩形）と可視カード（系统が描く浮きカプセル）は一致しない。
-/// そのズレは `SheetShapeReader` が UIKit 側の `presentedView` を実測して環境値で配る
-/// （iPhone 17 Pro / iOS 26.5 実測で上 5.8pt・下 4.4pt。機種や OS で変わるので定数にしない）。
-///
-/// 配り方は「抓手の下」と「カード下端の上」に同じ厚み（`compactBarGap`）：
-/// カードの中心に置くと抓手と行がぶつかる（迷你条は 67pt しか無く、行だけで 45pt 使う）ので、
-/// **抓手の帯を除いた残りの中心**に置く。行末の丸釦がカード右端の弧とほぼ同心になる。
-/// **条の総高は実測値に依存させない**のが鉄則：高さを実測に連動させると
-/// 「余白 → 条の高さ → 档 → カードの枠 → 実測値 → 余白」で輪になり、
-/// レイアウトが毎フレーム回り続けて CPU 100%・操作不能になる（実際に固まらせた）。
-/// 実測値は**固定の総高の中で上下の配分を変える**ためだけに使う。
+/// 一段式の身份条の枠。余白は**抓手の帯を除いた残りの中心**に来るよう上下へ同じ厚みで置く。
+/// **総高は実測値に依存させない**のが鉄則 —— 連動させると「余白 → 条の高さ → 档 → カードの枠 →
+/// 実測値」が輪になって毎フレーム回り続ける。実測値は総高の中の上下配分にだけ使う。
 private struct CompactBarRow: ViewModifier {
     @Environment(\.compactBarInsets) private var insets
 
@@ -660,8 +573,8 @@ extension EnvironmentValues {
 
 // MARK: - 底部安全区の配布
 
-/// sheet の中身は底部安全区を無効にしてある（`SheetLayout.minHeight` のコメント参照）ので、
-/// **スクロールする列の末尾だけ**は自分でその厚みを足し戻す。RootView が実測値を流す。
+/// sheet の中身は底部安全区を無効にしてあるので、**スクロールする列の末尾だけ**は自分で
+/// その厚みを足し戻す（`sheetScrollBottomPadding`）。RootView が実測値を流す。
 private struct SheetBottomInsetKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
@@ -679,12 +592,9 @@ extension View {
         padding(SheetMetrics.hitTargetInset(visualSize: visualSize)).contentShape(.rect)
     }
 
-    /// 当たり判定ぶん広げた部品を**行末**に置くときに付ける。UIKit の `alignmentRectInsets`
-    /// （Auto Layout は枠ではなく「見た目の矩形」で揃える）を SwiftUI で手当てするもの——
-    /// これが無いと、余白に揃うのが透明な当たり判定の縁になり、見た目の縁だけ内側へ引っ込む。
-    ///
-    /// **部品の側に付ける**のが肝：呼び出し側が桁を数えて負の padding を書くと、
-    /// 部品の寸法を変えたときに 4 枚のカードでバラバラにずれる（実際にずれていた）。
+    /// 当たり判定ぶん広げた部品を**行末**に置くときに付ける（UIKit の `alignmentRectInsets` 相当）。
+    /// 無いと余白に揃うのが透明な当たり判定の縁になり、見た目の縁だけ内側へ引っ込む。
+    /// **部品の側に付ける**のが肝 —— 呼び出し側が負の padding を書くと寸法変更でバラバラにずれる。
     func alignedToVisualEdge(_ edge: Edge.Set = .trailing, visualSize: CGFloat) -> some View {
         padding(edge, -SheetMetrics.hitTargetInset(visualSize: visualSize))
     }
@@ -712,8 +622,8 @@ struct SheetSectionHeader<Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: SheetMetrics.itemSpacing) {
-            // 横は設計稿より 15% 詰まる（`DesignScale` 参照）。見出しは尾省略＋わずかな縮小で
-            // 必ず 1 行に収め、右端の補助（`5km 内`・「随机作品」）を押し出さない。
+            // 横は設計稿より詰まる（`DesignScale` 参照）。見出しは尾省略＋縮小で必ず 1 行に収め、
+            // 右端の補助を押し出さない。
             Text(title)
                 .font(SheetFont.sectionTitle)
                 .foregroundStyle(Color.anitabiInk)
@@ -737,6 +647,8 @@ extension SheetSectionHeader where Trailing == EmptyView {
 
 /// 行を並べる器。設計稿 `border-radius:18px; padding:4px 12px` の白い薄膜。
 struct SheetListCard<Content: View>: View {
+    /// 検索結果の節だけ設計稿 1b の 16px を使うので、角丸は差し替えられるようにしておく。
+    var radius: CGFloat = SheetMetrics.listCardRadius
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -745,7 +657,7 @@ struct SheetListCard<Content: View>: View {
         }
         .padding(.horizontal, SheetMetrics.listCardHorizontalPadding)
         .padding(.vertical, SheetMetrics.listCardVerticalPadding)
-        .anitabiPanel(radius: SheetMetrics.listCardRadius)
+        .anitabiPanel(radius: radius)
     }
 }
 
@@ -799,14 +711,13 @@ enum AnitabiCapsuleSize {
     case inlineAction
     /// chip。設計稿 `padding:6px 10px` ＋ 12px（作品 chips・総高 ≒ 26）。
     case chip
-    /// 分段控件と横並びになる chip（`全部折叠` など）。字は chip と同じ 12px のまま、
-    /// 縦余白だけ「溝 3 ＋ 内側 5」に合わせる —— こうしないと隣の分段控件より 4pt 低くなる。
+    /// 分段控件と横並びになる chip（`全部折叠` など）。字は chip と同じで、縦余白だけ
+    /// 「溝 ＋ 内側」に合わせる —— こうしないと隣の分段控件より低くなる。
     case rowChip
     /// 小さい chip。設計稿 `padding:6px 12px` ＋ 11.5px/700（`继续`・外链）。
     case smallChip
     /// 一段式の行末で丸釦と並ぶ chip（作品カードの「全部点位」）。
-    /// **高さは隣の丸釦と同じ**（横並びのコントロールは背丈を揃える）——
-    /// 余白から高さを作ると 29pt にしかならず、38pt の ✕ の隣で一段低く見える。
+    /// **高さは隣の丸釦と同じ** —— 余白から作ると ✕ の隣で一段低く見える。
     case barChip
 
     /// 高さを余白ではなく**寸法として**決めるサイズ。隣の部品と揃えたいときに使う。
@@ -843,20 +754,16 @@ enum AnitabiCapsuleSize {
     }
 }
 
-/// カプセルの「面」だけを切り出したもの。釦（`AnitabiCapsuleStyle`）と、ButtonStyle を
-/// 通せない `Menu` のラベルの**両方**がこれを使う。
+/// カプセルの「面」だけを切り出したもの。釦（`AnitabiCapsuleStyle`）と、ButtonStyle を通せない
+/// `Menu` のラベルの**両方**がこれを使う。
 struct AnitabiCapsuleFace<Content: View>: View {
     var kind: AnitabiCapsuleKind = .secondary
     var size: AnitabiCapsuleSize = .action
     /// 行幅いっぱいに伸ばす（設計稿の「查看全部点位」など）。
     var fullWidth = false
-    /// **行の高さいっぱいに伸ばす**。横並びの釦を等高にするための唯一の手段：
-    /// 行（`WeightedRow`／`HStack`）の高さはいちばん背の高い子で決まり、
-    /// これを付けた子はその高さを受け取る（`Grid` の格子が行高を揃えるのと同じ仕組み）。
-    ///
-    /// 高さを字から作ろうとしてはいけない —— 設計稿は同じ動作排でも主 13px・次 12px と
-    /// 字を変えており、記号（SF Symbol）は同じ字級でも行高より背が低い。
-    /// 実際、この仕組みを使う前は「⋯」だけ 2pt 低かった。
+    /// **行の高さいっぱいに伸ばす**。横並びの釦を等高にする唯一の手段 —— 行の高さはいちばん
+    /// 背の高い子で決まり、これを付けた子がその高さを受け取る。高さを字から作ってはいけない：
+    /// 記号は同じ字級でも行高より背が低いので、「⋯」だけ低くなる。
     var fillsRowHeight = false
     @ViewBuilder var content: Content
 
@@ -869,15 +776,14 @@ struct AnitabiCapsuleFace<Content: View>: View {
         content
             .font(font)
             .lineLimit(1)
-            // 設計稿は中国語前提の字数で組まれている。日本語・英語では同じ枠に収まらない語
-            // （街景 → ストリートビュー / Street View）があるので、切るより縮めて全部見せる。
+            // 設計稿は中国語前提の字数。日本語・英語では収まらない語（街景 → ストリートビュー）が
+            // あるので、切るより縮めて全部見せる。
             .minimumScaleFactor(0.6)
             .foregroundStyle(foreground)
             .padding(.vertical, size.verticalPadding)
-            // 設計稿の動作排は `padding: 10px 0` ——幅いっぱいに伸びる項目に左右余白は無い。
-            // 余白を足すと、いちばん狭いスロット（`flex:1`）で字が入らなくなる。
+            // 幅いっぱいに伸びる項目に左右余白は無い（設計稿の動作排は `padding: 10px 0`）——
+            // 足すといちばん狭いスロットで字が入らなくなる。
             .padding(.horizontal, fullWidth ? 0 : size.horizontalPadding)
-            // 高さを寸法で決めるサイズ（`barChip`）はここで固定する。
             .frame(height: size.fixedHeight)
             .frame(
                 maxWidth: fullWidth ? .infinity : nil,
@@ -932,12 +838,12 @@ struct AnitabiCapsuleStyle: ButtonStyle {
 
 // MARK: - 重み付きの横並び
 
-/// 設計稿の動作排は等分ではない —— 地標カードは `flex:1.4 / 1 / 1 / 幅 44 固定`（2c）。
-/// SwiftUI に flex-grow は無いので、その比率を持つ最小の `Layout` を自前で用意する。
-/// 高さは行の中でいちばん高い子に揃える（カプセルの高さが揃わないと設計稿の見え方にならない）。
+/// 設計稿の動作排は等分ではない（地標カードは `flex:1.4 / 1 / 1 / 幅 44 固定`）。SwiftUI に
+/// flex-grow は無いので、その比率を持つ最小の `Layout` を自前で用意する。
+/// 高さは行の中でいちばん高い子に揃える。
 struct WeightedRow: Layout {
     var spacing: CGFloat = SheetMetrics.scaled(8)
-    /// 各子の伸び率。**0 なら固有幅のまま**（設計稿の「⋯」タイル＝幅 44 固定がこれ）。
+    /// 各子の伸び率。**0 なら固有幅のまま**（設計稿の「⋯」タイル）。
     /// 要素数が子より少ない場合、足りないぶんは 1 として扱う。
     var weights: [CGFloat]
 
@@ -1014,8 +920,8 @@ struct CardCircleLabel: View {
     }
 }
 
-/// 4 枚のカード共通の閉じる釦。**必ず行の右端に置く**部品なので、
-/// 見た目の縁を余白に揃える補正もこの中で完結させる（呼び出し側は何も計算しない）。
+/// 4 枚のカード共通の閉じる釦。**必ず行の右端に置く**部品なので、見た目の縁を余白に揃える
+/// 補正もこの中で完結させる（呼び出し側は何も計算しない）。
 struct CardCloseButton: View {
     var action: () -> Void
 
@@ -1031,15 +937,8 @@ struct CardCloseButton: View {
 
 // MARK: - カード頭部
 
-/// 3 枚のカードで共通の頭部。設計稿 1c/1d/1e・2b/2c/2d の解剖をそのまま写す：
-///
-///     ┌──────────────────────────────┬──────┬──────┐
-///     │ 標題（左寄せ・太）                │ ◯共有 │ ◯ ✕  │
-///     │ 副題（chip ＋ meta・左寄せ・灰）    │      │      │
-///     └──────────────────────────────┴──────┴──────┘
-///
-/// 以前ここに居た「標題を画面中央へ置く Apple マップ式」は設計稿に無いので捨てた。
-/// 設計稿は一貫して**左寄せの標題ブロック ＋ 右端に丸釦 2 つ**。
+/// 3 枚のカードで共通の頭部。設計稿は一貫して**左寄せの標題ブロック（標題＋副題）＋
+/// 右端に丸釦 2 つ（共有・✕）**で、Apple マップ式の中央寄せ標題は採らない。
 struct CardHeader<Trailing: View, Subtitle: View>: View {
     let title: String
     /// 標題の字。設計稿はカードと档ごとに違う値を持つ（作品 18/17・地標 18/16・落針 16）ので
@@ -1124,8 +1023,8 @@ struct AnitabiSegment<Value: Hashable>: Identifiable {
     }
 }
 
-/// 設計稿の分段控件（`background:rgba(19,46,26,.07)` の溝 ＋ 白い滑块 ＋ 影）。
-/// 系统の `.pickerStyle(.segmented)` はこの形（完全な丸・白い滑块・12px 字）に寄せられないので自作する。
+/// 設計稿の分段控件（墨 7% の溝 ＋ 白い滑块 ＋ 影）。系统の `.pickerStyle(.segmented)` は
+/// この形（完全な丸・白い滑块）に寄せられないので自作する。
 struct AnitabiSegmentedPicker<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [AnitabiSegment<Value>]
@@ -1146,7 +1045,6 @@ struct AnitabiSegmentedPicker<Value: Hashable>: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
-                        // 設計稿 `padding:5px 0`。溝の 3pt と合わせて総高 ≒ 30。
                         .padding(.vertical, SheetMetrics.segmentedVerticalPadding)
                         .background {
                             if isSelected {
@@ -1322,8 +1220,7 @@ struct WorkChipCover: View {
 
     var body: some View {
         Circle()
-            .fill(bangumi?.themeGradient
-                  ?? LinearGradient(colors: [fallback], startPoint: .top, endPoint: .bottom))
+            .fill((bangumi?.themeColor ?? fallback).anitabiThemeGradient)
             .overlay {
                 if let url = bangumi?.coverURL {
                     RemoteImage(url: url, trigger: trigger) { phase in

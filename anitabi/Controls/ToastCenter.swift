@@ -2,12 +2,9 @@
 //  ToastCenter.swift
 //  anitabi
 //
-//  画面上部に浮かぶ一時通知。「操作が起きたことを一言で伝える」専用の軽い仕組みで、
-//  エラーの詳細やアクション付きの通知はここに乗せない（それは alert / SafariSheet の役目）。
-//
-//  router（`AppRouter.toast`）にぶら下げているのは、`@Bindable var router` を既に持っている
-//  カード（PointCardSheet 等）からそのまま `router.toast.show(...)` できるようにするため——
-//  新しい環境値／追加のバケツリレー配線を増やさずに済む。
+//  画面上部に浮かぶ一時通知。「操作が起きたことを一言で伝える」専用なので、エラーの詳細や
+//  アクション付きの通知はここに乗せない（それは alert の役目）。router にぶら下げているのは、
+//  既に router を持っているカードからそのまま呼べるようにするため。
 //
 
 import SwiftUI
@@ -15,9 +12,8 @@ import UIKit
 
 // MARK: - Toast
 
-/// 1 件のトースト。`id` を毎回作り直すことで、同じ文言を連続で出しても
-/// `ToastCenter` 側の 2 秒タイマーが確実にリセットされる（`==` 比較で「同じ内容だから無視」
-/// にならないようにするため、あえて `UUID` を equality に含めている）。
+/// 1 件のトースト。`id` を毎回作り直すのは、同じ文言を連続で出しても「同じ内容だから無視」に
+/// ならず、タイマーが確実にリセットされるようにするため。
 struct Toast: Identifiable, Equatable {
     let id = UUID()
     let text: String
@@ -32,8 +28,7 @@ final class ToastCenter {
     private(set) var current: Toast?
     private var dismissTask: Task<Void, Never>?
 
-    /// 表示する。連続で呼ばれたら前のタイマーは捨てて 2 秒からやり直す
-    /// （「已拷贝坐标」を連打しても毎回ちゃんと 2 秒残る、という体感を優先）。
+    /// 表示する。連続で呼ばれたら前のタイマーは捨てて 2 秒からやり直す。
     func show(_ text: String, symbol: String? = nil) {
         dismissTask?.cancel()
         let toast = Toast(text: text, symbol: symbol)
@@ -51,8 +46,7 @@ final class ToastCenter {
 
 // MARK: - オーバーレイ
 
-/// RootView の最上段に置く玻璃カプセル本体。位置決め（安全区からの距离・水平中央寄せ）は
-/// 呼び出し側（RootView）の責務——ここは「見た目」だけを持つ。
+/// RootView の最上段に置く玻璃カプセル。位置決めは呼び出し側の責務で、ここは見た目だけ。
 struct ToastOverlayView: View {
     var toast: Toast?
 

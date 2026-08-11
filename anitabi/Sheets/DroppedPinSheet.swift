@@ -2,16 +2,9 @@
 //  DroppedPinSheet.swift
 //  anitabi
 //
-//  長押しで落とした針のカード。設計稿 1e / 2d をそのまま写す。Web 版「空白クリック」の
-//  原生化——単クリック（タップ）は従来どおり選択解除に残すので、これは**長押し専用**の入口。
-//
-//  設計稿 2d の三段（この 1 枚だけ全屏档を持たない）：
-//  - 一段式 = 反查した地名 ＋ 経緯度。まず針が落ちた場所が合っているか確かめる。
-//  - 两段式 = ＋ 導航／在此添加地标（禁止時は理由も添える）。
-//  - 三段式 = ＋ 針にいちばん近い巡礼点 3 件。
-//
-//  地図上の針そのもの（系统赤マーカー・落下演出）は `MapCanvas.droppedPinCoordinate` の役目。
-//  ここは出てきた後のカードの中身だけを持つ。
+//  長押しで落とした針のカード（設計稿 1e / 2d）。タップは選択解除なので**長押し専用**の入口で、
+//  三段の中身は 地名＋経緯度 → ＋動作排 → ＋最近の巡礼点 3 件。地図上の針そのもの（系统赤マーカー・
+//  落下演出）は `MapCanvas.droppedPinCoordinate` の役目。
 //
 
 import CoreLocation
@@ -23,16 +16,14 @@ struct DroppedPinSheet: View {
 
     let store: AnitabiStore
     let coordinate: CLLocationCoordinate2D
-    /// 現在のズーム。「在此添加地标」を z<16 で禁止する判定に使う（RootView の
-    /// `router.cameraState?.zoom` をそのまま渡す）。
+    /// 現在のズーム。「在此添加地标」を z<16 で禁止する判定に使う。
     let currentZoom: Double
-    /// いま何段目か。一段式では身份条より下を描かない（設計稿 2d 一段式）。
+    /// いま何段目か。一段式では身份条より下を描かない。
     var stage: SheetStage = .medium
-    /// 「最近の巡礼点」行から選んだ経路。RootView 側で針を消してから密度 flyTo する。
+    /// 「最近の巡礼点」行から選んだ経路。RootView 側で針を消してから寄せる。
     var onSelectPoint: (ScenePoint) -> Void
     var onClose: () -> Void
 
-    /// sheet の中身は底部安全区を無効にしてあるので、列の末尾だけ自分で足し戻す。
     @Environment(\.sheetBottomInset) private var sheetBottomInset
 
     @State private var placeName: String?
@@ -50,9 +41,6 @@ struct DroppedPinSheet: View {
                 cardHeader
                     .compactContentHeight(.droppedPin)
 
-                // 一段式では身份条より下を**描かない**。sheet の中身は底部安全区の下にも
-                // 描かれるので、高さを身份条ぴったりにしても次の節がホームインジケータ帯に覗く。
-                // 判定は生の sheet 高さ由来（RootView）なので、拖动に即座に追従する。
                 VStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
                     actionRow
                     if currentZoom < Self.preciseAddZoom {
@@ -66,16 +54,10 @@ struct DroppedPinSheet: View {
                         nearestSection
                     }
                 }
-                // 一段式では中身を**レイアウトからも外す**（高さ 0 に畳む）。opacity だけで
-                // 隠していた版は、見えないまま場所を要求し続ける —— sheet の高さが足りないぶんを
-                // SwiftUI が身份条の余白から削るので、カードごとに 3〜10pt 潰れて
-                // 「首页の検索だけ上、他の 2 枚は下」という食い違いになっていた（実測）。
-                .frame(height: stage == .compact ? 0 : nil, alignment: .top)
-                .clipped()
-                .allowsHitTesting(stage != .compact)
+                .collapsedInCompactStage(stage)
             }
             .scenePadding(.horizontal)
-            .padding(.bottom, SheetMetrics.scrollBottomPadding + sheetBottomInset)
+            .sheetScrollBottomPadding(sheetBottomInset)
         }
         .sheet(item: $safariItem) { item in SafariSheet(url: item.url) }
         .task {
@@ -88,10 +70,8 @@ struct DroppedPinSheet: View {
 
     // MARK: 1. 頭部（設計稿 2d：地名 ＋ 等幅の座標 ＋ 共有 ◯ ＋ ✕）
 
-    /// 反查が済むまでは標題そのものが座標なので、そのときだけ副題を伏せて同じ字の二度書きを避ける。
+    /// 反查が済むまでは標題そのものが座標なので、そのときだけ副題を伏せて二度書きを避ける。
     private var cardHeader: some View {
-        // 設計稿 2d は三段すべて 16px/900 —— 落針カードだけは档で標題の字が変わらない。
-        // だから最小档の実高もそのまま測れる（作品／地標カードのような複製は要らない）。
         CardHeader(title: titleText, titleFont: SheetFont.titleCompactPoint, onClose: onClose) {
             ShareLink(item: shareCoordinateText) {
                 CardCircleLabel(systemName: "square.and.arrow.up")
@@ -105,12 +85,11 @@ struct DroppedPinSheet: View {
                     .foregroundStyle(Color.anitabiInkSecondary)
             }
         }
-        // 迷你条の行高は 4 枚のカードで共通（`compactBarRow`）。この頭部は全档で同じ形なので、
-        // 中/大档でもこの下限が効く（他カードの两段式の頭部も同じくらいの背丈になる）。
+        // 迷你条の行高は 4 枚のカードで共通（`compactBarRow`）。
         .compactBarRow()
     }
 
-    /// 反查が済むまでは座標をそのまま見出しに使う（「加载中先显坐标」）。失败したら「已选位置」。
+    /// 反查が済むまでは座標をそのまま見出しに使う。失敗したら「已选位置」。
     private var titleText: String {
         if let placeName { return placeName }
         if geocodeFailed { return String(localized: "已选位置") }
@@ -123,12 +102,14 @@ struct DroppedPinSheet: View {
 
     // MARK: 2. 動作排（設計稿 2d：2 枚で等分。禁止側は白 35% ＋ 墨 35%）
 
-    /// Google 导航を主（実心）にする——常に押せる導線を主にし、条件付きで禁止になり得る
-    /// 「在此添加地标」は次と同格に留める。座標の共有は頭部の丸釦。
+    /// Google 导航を主（実心）にする —— 常に押せる導線を主にし、条件付きで禁止になり得る
+    /// 「在此添加地标」は次と同格に留める。
     private var actionRow: some View {
         HStack(spacing: SheetMetrics.itemSpacing) {
             Button {
-                open(AnitabiWebLink.googleMaps(lat: coordinate.latitude, lng: coordinate.longitude))
+                AnitabiWebLink.openExternally(
+                    AnitabiWebLink.googleMaps(lat: coordinate.latitude, lng: coordinate.longitude)
+                )
             } label: {
                 Text("Google 导航")
             }
@@ -167,16 +148,10 @@ struct DroppedPinSheet: View {
         String(format: "%.6f,%.6f", coordinate.latitude, coordinate.longitude)
     }
 
-    private func open(_ url: URL) {
-        UIApplication.shared.open(url)
-    }
-
     // MARK: - データ
 
-    /// iOS 26 は `MKReverseGeocodingRequest`、それ未満は `CLGeocoder`（26 で非推奨になった方）。
-    /// 失敗も空応答も等しく nil（呼び出し側は両方「已选位置」に丸める）。
-    /// 電波が弱い巡礼中は応答が返らないことも普通にあるので、5 秒でタイムアウトさせて
-    /// 「加载中」のまま固まらないようにする（実測でも Simulator 上で応答が返らないことがあった）。
+    /// iOS 26 は `MKReverseGeocodingRequest`、それ未満は `CLGeocoder`。失敗も空応答も等しく nil。
+    /// 電波が弱い巡礼中は応答が返らないことも普通にあるので、5 秒でタイムアウトさせる。
     private func reverseGeocode() async -> String? {
         let coordinate = self.coordinate
         return await withTaskGroup(of: String?.self) { group in
@@ -200,34 +175,17 @@ struct DroppedPinSheet: View {
         }
     }
 
-    /// iOS 26 未満の反查。関数自体を「26 で非推奨」と印しておくことで、中で
-    /// `CLGeocoder` を呼んでも非推奨警告が出ない（同じ非推奨文脈からの呼び出しは黙る）。
-    /// 26 が最低適配になったらこの関数ごと消せる。
+    /// iOS 26 未満の反查。関数自体に非推奨を印しておくと、中で `CLGeocoder` を呼んでも
+    /// 警告が出ない（同じ非推奨文脈からの呼び出しは黙る）。26 が最低適配になったら消せる。
     @available(iOS, deprecated: 26.0, message: "iOS 26 以降は MKReverseGeocodingRequest を使う")
     private static func legacyReverseGeocode(_ location: CLLocation) async -> String? {
         guard let placemarks = try? await CLGeocoder().reverseGeocodeLocation(location) else { return nil }
         return placemarks.first?.name
     }
 
-    /// `AnitabiStore.recomputeNearby` と同じ等距長方形近似——5 万点の線形走査なので
-    /// バックグラウンドで行う。落針の座標は現在地ではないので store 側の関数は使えない。
+    /// 針の周りの巡礼点 3 件。距離の上限は掛けない —— 何も無い所へ落としても
+    /// 「いちばん近い点」は出したい。
     private func computeNearest() async -> [NearbyPoint] {
-        let coordinate = self.coordinate
-        let points = store.points
-        return await Task.detached(priority: .userInitiated) {
-            let latRad = coordinate.latitude * .pi / 180
-            let metersPerLat = 111_320.0
-            let metersPerLng = 111_320.0 * cos(latRad)
-
-            var scored: [(ScenePoint, Double)] = []
-            scored.reserveCapacity(min(points.count, 4096))
-            for point in points {
-                let dy = (point.lat - coordinate.latitude) * metersPerLat
-                let dx = (point.lng - coordinate.longitude) * metersPerLng
-                scored.append((point, (dx * dx + dy * dy).squareRoot()))
-            }
-            scored.sort { $0.1 < $1.1 }
-            return scored.prefix(3).map { NearbyPoint(point: $0.0, distance: $0.1) }
-        }.value
+        await AnitabiStore.nearestPoints(to: coordinate, in: store.points, limit: 3)
     }
 }

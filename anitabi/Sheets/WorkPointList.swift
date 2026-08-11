@@ -2,11 +2,9 @@
 //  WorkPointList.swift
 //  anitabi
 //
-//  作品カードの分組点一覧。設計稿 2b の一覧カード（角丸 18・`50×38` の剧照・点名 13.5/700・
-//  meta 11px・行末 `›`）をそのまま写す。分組ロジック自体は Store 側の持ち物。
-//
-//  選中行は設計稿 1c のとおり**主題色の枠**で示す（`rgba(theme,.16)` 地 ＋ 1.5pt の主題色描边・
-//  角丸 14）。系统の accent 色ではなく作品の色にするのがこの App の識別子。
+//  作品カードの分組点一覧（設計稿 2b）。分組ロジック自体は Store 側の持ち物。
+//  選中行は系统の accent ではなく**作品の主題色の枠**で示す（設計稿 1c）——
+//  作品ごとの色がこの App の識別子。
 //
 
 import SwiftUI
@@ -100,9 +98,9 @@ struct WorkPointRow: View {
                 url: point.thumbnailURL,
                 size: SheetMetrics.pointThumbnailSize,
                 radius: SheetMetrics.pointThumbnailRadius,
-                // 剧照が無いことを主題色で示す（作品カードは既に 1 作品に絞られているので
-                // 大面积主题色にはならない）。
-                placeholder: point.thumbnailURL == nil ? themeGradient : nil
+                // 剧照が無いことを主題色で示す（このカードは既に 1 作品に絞られているので
+                // 大面積の主題色にはならない）。
+                placeholder: point.thumbnailURL == nil ? themeColor.anitabiThemeGradient : nil
             )
 
             VStack(alignment: .leading, spacing: SheetMetrics.rowTitleGap) {
@@ -133,8 +131,8 @@ struct WorkPointRow: View {
         .contentShape(.rect)
     }
 
-    /// 設計稿 2b の 2 行目：`EP03 · 08:12` の後ろに「注意礼仪」徽章、無ければ折り／備考を出す。
-    /// 3 行にはしない（1 行に収まらない情報は地標カードで読む）。
+    /// 設計稿 2b の 2 行目：`EP03 · 08:12 · 備考` ＋「注意礼仪」徽章。
+    /// 2 行目までで打ち切る（収まらない情報は地標カードで読む）。
     @ViewBuilder
     private var metaRow: some View {
         let meta = [point.episodeBadge, point.timecodeText, point.note?.nilIfBlank ?? point.folderName?.nilIfBlank]
@@ -153,13 +151,5 @@ struct WorkPointRow: View {
                 }
             }
         }
-    }
-
-    private var themeGradient: LinearGradient {
-        LinearGradient(
-            colors: [themeColor, themeColor.mix(with: .black, by: 0.28)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
     }
 }

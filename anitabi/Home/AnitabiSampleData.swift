@@ -2,9 +2,8 @@
 //  AnitabiSampleData.swift
 //  anitabi
 //
-//  DEBUG 専用のサンプルデータ。起動引数 `-anitabiUseSampleData` を付けると
-//  ネットワークの代わりにこれを読む。プレビューと、オフライン環境での
-//  レイアウト確認（附近・検索・都市・作品ブラウズ）に使う。
+//  DEBUG 専用のサンプルデータ。起動引数 `-anitabiUseSampleData` を付けるとネットワークの
+//  代わりにこれを読む。オフラインでのレイアウト確認用。
 //
 
 #if DEBUG
@@ -94,8 +93,7 @@ enum AnitabiSampleData {
         let lng: Double
         let ep: String?
         var priority: Int = 400
-        /// スクリーンショットのパス。段階 1 では CDN 解決可否を問わずダミー値でよい
-        /// （`randomWork`/`screenshotCount` のしきい値検証用）。
+        /// スクリーンショットのパス。CDN で解決できなくてよい（枚数のしきい値検証用）。
         var image: String? = nil
         /// フォルダ（グループ見出し）自身の点かどうか。
         var isFolder: Bool = false
@@ -123,8 +121,7 @@ enum AnitabiSampleData {
     }
 
     private static let works: [SampleWork] = [
-        // フォルダ分組（isFolder + fid）と旧式 folderName 分組、投稿者・出典・タイムコードの
-        // 網羅はこの作品でまとめて持たせる。
+        // フォルダ分組（isFolder + fid）・投稿者・出典・タイムコードの網羅はこの作品に持たせる。
         SampleWork(
             id: 344870, cn: "莉可丽丝", title: "リコリス・リコイル", color: "#d1495b",
             scenes: [
@@ -141,7 +138,7 @@ enum AnitabiSampleData {
                     image: "/points/344870/lyco1_1700000000000.jpg",
                     uid: 1000, fid: "lyco0", timecodeS: 185
                 ),
-                // origin 文言つき（contributorLabel の優先度検証用）。
+                // origin 文言つき（出典行の優先度検証用）。
                 SampleScene(
                     id: "lyco2", name: "錦糸公園", nameCN: "锦丝公园",
                     lat: 35.6968, lng: 139.8145, ep: "1",
@@ -171,8 +168,7 @@ enum AnitabiSampleData {
                 ),
             ]
         ),
-        // 話数の混在（数字 / 非数字 / 無し）と、スクリーンショット 4 件（`randomWork` の
-        // 「>3」しきい値を満たす）をこの作品でまとめて網羅する。
+        // 話数の混在（数字 / 非数字 / 無し）と、`randomWork` のしきい値を満たす剧照 4 件。
         SampleWork(
             id: 207195, cn: "摇曳露营△", title: "ゆるキャン△", color: "#3fa9a5",
             scenes: [

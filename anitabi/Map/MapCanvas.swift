@@ -2,46 +2,9 @@
 //  MapCanvas.swift
 //  anitabi
 //
-//  ============================================================================
-//  MapCanvas —— 地図の唯一の入口（SwiftUI 側の契約）
-//  ============================================================================
-//
-//  地図は **ナビゲーション状態を一切持たない**。何を選んだか・どのカードを開くかは全て
-//  呼び出し側（AppRouter）の持ち物で、地図はそれを「描く」のと「操作を上へ投げる」だけ。
-//
-//  ## 入力
-//  | 引数 | 意味 |
-//  |---|---|
-//  | `dataset` | 地標・作品の種。中身は比較せず `version` の変化だけで索引を建て直す |
-//  | `command` | 一回きりのカメラ指令（`.region` / `.center` / `.flyToPoint` / `.fitWork` / `.userLocation`）。`id` が変わったときだけ実行される |
-//  | `focusedWorkID` | 作品モード。その作品の点を阶梯無視で全量表示し、他作品を隠し、外側を圧暗する |
-//  | `selectedWorkIDs` | 複数作品フィルタ（chips）。空でなければこの集合だけを阶梯無視で表示 |
-//  | `selectedPointID` | 選択中の地標。選択状態は**外部が持つ**。地図は気球に morph するだけ |
-//  | `isPhotoLayerVisible` | 劇照サムネイル標のレイヤー切り替え |
-//  | `baseStyle` | `.standard` / `.hybrid`（衛星） |
-//  | `attributionLift` | 署名（Apple ロゴ）をカードの上へ逃がす指令。两段式まで追従・三段式では追わない |
-//  | `droppedPinCoordinate` | 長押しで落とした針（阶段 7）。`nil` で撤去 |
-//
-//  ## 出力（全てクロージャ）
-//  - `onSelectPoint(ScenePoint)` — 地標をタップ
-//  - `onSelectWork(Int)` — 作品標をタップ
-//  - `onTapDimRegion()` — 作品モードの圧暗部をタップ（＝作品モード終了の合図）
-//  - `onTapBlank()` — 何も無い所をタップ（＝選択解除の合図）
-//  - `onLongPress(CLLocationCoordinate2D)` — 長押し（落針）
-//  - `onCameraIdle(MapCameraState)` — カメラが 120ms 静止した（chips 更新・状態復元用）
-//  - `onAnnotationsChange(点数, 作品標数)` — 在図標注数。HUD・デバッグ用の任意口
-//  - `onMapViewReady(MKMapView)` — 生の `MKMapView` を 1 回だけ手渡す（阶段 7・
-//    `MKCompassButton`/`MKScaleView` が `init(mapView:)` で同じインスタンスを要求するため）
-//
-//  ## 使用例
-//  ```swift
-//  MapCanvas(dataset: dataset,
-//            command: router.cameraCommand,
-//            focusedWorkID: router.focusedWorkID,
-//            selectedPointID: router.selectedPointID,
-//            onSelectPoint: { router.open(point: $0) },
-//            onCameraIdle: { router.camera = $0 })
-//  ```
+//  地図の唯一の入口（SwiftUI 側の契約）。地図は**ナビゲーション状態を一切持たない** ——
+//  何を選んだか・どのカードを開くかは全て `AppRouter` の持ち物で、地図はそれを「描く」のと
+//  「操作を上へ投げる」だけ。個々の引数の意味はそれぞれの宣言のコメントに書いてある。
 //
 
 import CoreLocation
@@ -51,8 +14,7 @@ import UIKit
 
 // MARK: - 公開型
 
-/// `String` raw value を持たせているのは `@AppStorage` に直接載せるため（阶段 7・浮控の地図钮）。
-/// 既存の switch 網羅性・Equatable 比較には影響しない、純粋な追加適合。
+/// `String` raw value を持たせているのは `@AppStorage` に直接載せるため。
 enum MapBaseStyle: String, Equatable {
     case standard
     /// 衛星（ラベル付き）。
@@ -81,11 +43,9 @@ struct MapCameraCommand: Identifiable, Equatable {
         /// 一覧から選んだ 1 点へ。`priority`（最近傍距離 m）から寄り具合を決め、
         /// `verticalOffset` pt ぶん画面上寄りに置く（下半分はカードで隠れるため）。
         case flyToPoint(CLLocationCoordinate2D, priority: Int?, verticalOffset: CGFloat)
-        /// 与えられた座標が全部収まる範囲へ（作品モードの「枠を丸ごと見せる」）。
-        /// - `bottomInset`: カードに譲る帯。`nil` なら**可視カードの上縁を実測して使う**
-        ///   （`attributionLift.rawLift`）——署名・浮控と同じ物差しなので、档を跨いでもずれない。
-        /// - `trimsOutliers`: 離群点を切り捨てるか。圧暗レイヤーの頂点を渡すときは `false`
-        ///   （あの多角形は全点から組まれているので、ここで間引くと枠が画面外に出る）。
+        /// 与えられた座標が全部収まる範囲へ（作品モードの「枠を丸ごと見せる」）。`bottomInset` は
+        /// カードに譲る帯で、`nil` なら可視カードの上縁を実測して使う。`trimsOutliers` は離群点を
+        /// 切り捨てるかで、圧暗レイヤーの頂点を渡すときは `false`。
         case fitWork([CLLocationCoordinate2D], bottomInset: CGFloat?, trimsOutliers: Bool)
         case userLocation(span: CLLocationDegrees)
     }
@@ -124,22 +84,17 @@ struct MapCameraCommand: Identifiable, Equatable {
     }
 }
 
-/// 署名（Apple ロゴ＋「法的情報」）をどこまで持ち上げるかの指令。
-///
-/// Apple マップと同じ挙動を写す：カードが一段式→两段式へ上がる**間はずっと**署名がその上に
-/// 乗ったまま付いてくる。三段目へはもう追わない（そこまで開いたカードは署名を覆ってよい）。
+/// 署名（Apple ロゴ＋「法的情報」）をどこまで持ち上げるかの指令。Apple マップと同じで、
+/// カードが一段式→两段式へ上がる**間はずっと**署名が付いてくるが、三段目へは追わない。
 struct MapAttributionLift: Equatable {
     /// 可視カードの上縁（window 座標）。`SheetShapeReader` の実測。nil なら既定位置のまま。
     var cardTopY: CGFloat?
-    /// 三段式より下に居るときに最後に見たカードの上縁（window 座標）。**蓋の実測値**。
-    /// nil の間（実測が 1 回も届いていない間）は蓋をしない —— 見積もりだけで蓋をすると、
-    /// 見積もりが実物より低い端末で署名・浮控がカードの下に潜る（実機で発生）。
+    /// 三段式より下に居るときに最後に見たカードの上縁＝**蓋の実測値**。nil の間は蓋をしない。
     var restingCardTopY: CGFloat?
-    /// 蓋の見積もり（地図の下端からの距離）。档の高さから組んだ値で、実測の代役。
+    /// 蓋の見積もり（地図の下端からの距離）。実測が届くまでの代役。
     var ceiling: CGFloat = MapCanvas.attributionBottomMargin
 
-    /// 「地図の下端からカードの上縁まで」。蓋（两段式の位置）で止めた最終値。
-    /// 署名（`applyAttributionLift`）と浮控列（`RootView.controlsBottomMargin`）が共有する。
+    /// 「地図の下端からカードの上縁まで」を蓋で止めた最終値。署名と浮控列が共有する ——
     /// 座標変換をここ 1 か所に閉じ込めてあるので、2 つが別の物差しに分かれることがない。
     func resolvedLift(in mapView: MKMapView) -> CGFloat? {
         guard let raised = rawLift(in: mapView) else { return nil }
@@ -151,10 +106,8 @@ struct MapAttributionLift: Equatable {
     }
 
     /// 蓋を掛けない生の値＝「地図の下端から**いま見えているカードの上縁**まで」。
-    ///
-    /// カメラのフィット（`.fitWork`）はこちらを使う。蓋付き（`resolvedLift`）は「三段式まで
-    /// 署名を追わせない」ための頭打ちなので、一段式まで畳んだカードに対しては**実際より広い帯**を
-    /// 返す —— それでフィットすると畳んだのに絵が上半分に寄ったままになる。
+    /// カメラのフィットはこちらを使う —— 蓋付きは「三段式まで署名を追わせない」ための頭打ちで、
+    /// 畳んだカードに対しては実際より広い帯を返すので、絵が上半分に寄ったままになる。
     func rawLift(in mapView: MKMapView) -> CGFloat? {
         guard let cardTopY else { return nil }
         return lift(of: cardTopY, in: mapView)
@@ -179,11 +132,8 @@ struct MapCanvas: UIViewRepresentable {
     var baseStyle: MapBaseStyle = .standard
     /// 署名を常駐カードの上へ逃がす指令（既定＝`attributionBottomMargin` に据え置き）。
     var attributionLift = MapAttributionLift()
-    /// 長押しで落とした針（阶段 7）。`nil` なら地図上に何も置かない。系统の赤いマーカーで表示し、
-    /// `nil` に戻れば（呼び出し側が `AppRouter.droppedPin` を消せば）そのまま撤去される。
+    /// 長押しで落とした針。`nil` なら地図上に何も置かない（系统の赤いマーカーで表示する）。
     var droppedPinCoordinate: CLLocationCoordinate2D?
-    /// 初期表示。復元値や deep link があれば呼び出し側が入れる。
-    var initialRegion = MapCanvas.japanOverview
 
     var onSelectPoint: (ScenePoint) -> Void = { _ in }
     var onSelectWork: (Int) -> Void = { _ in }
@@ -191,14 +141,14 @@ struct MapCanvas: UIViewRepresentable {
     var onTapBlank: () -> Void = {}
     var onLongPress: (CLLocationCoordinate2D) -> Void = { _ in }
     var onCameraIdle: (MapCameraState) -> Void = { _ in }
+    /// 在図標注数（HUD・デバッグ用の任意口）。
     var onAnnotationsChange: (Int, Int) -> Void = { _, _ in }
-    /// ユーザーが地図を動かし始めた（パン／ピンチの began）。sheet を最小档へ落とす合図に使う。
-    /// SwiftUI の `simultaneousGesture` は MKMapView 内部の認識器に食われて発火しないことがあるので、
+    /// ユーザーが地図を動かし始めた（パン／ピンチの began）。sheet を最小档へ落とす合図。
+    /// SwiftUI の `simultaneousGesture` は MKMapView 内部の認識器に食われることがあるので、
     /// 観測専用の認識器を自前で足して確実に拾う。
     var onUserInteractionBegan: (() -> Void)?
-    /// `MKMapView` の生参照が要るのはここの外（`MKCompassButton`/`MKScaleView` は
-    /// `init(mapView:)` を取るので、浮控側が同じインスタンスを渡す必要がある）。
-    /// 後方互換のため既定 `nil` —— 阶段 6 以前の呼び出し元は何も変える必要が無い。
+    /// 生の `MKMapView` を 1 回だけ手渡す —— `MKCompassButton`/`MKScaleView` が
+    /// `init(mapView:)` で同じインスタンスを要求するため。
     var onMapViewReady: ((MKMapView) -> Void)?
 
     static let japanOverview = MKCoordinateRegion(
@@ -206,18 +156,9 @@ struct MapCanvas: UIViewRepresentable {
         span: MKCoordinateSpan(latitudeDelta: 14, longitudeDelta: 14)
     )
 
-    /// 署名（Apple ロゴ＋「法的情報」リンク）を持ち上げる高さ。MKMapView は署名を
-    /// `layoutMargins` の内側へ置くので、常駐 sheet に食われないためにはここで逃がすしかない
-    /// （MapKit の表示規約上、署名を隠す・自前で描き直すのは不可）。
-    ///
-    /// 100pt の根拠（Maestro の hierarchy 実測・iPhone 17 Pro）：収起档の HomeSheet の上縁は
-    /// 画面下から約 100pt（`SheetLayout.homeMinHeight` 72 ＋ ホームインジケータ帯）。
-    /// MKMapView は署名の下端をこの余白のさらに約 10pt 上へ置くので、100 で約 10pt 空く。
-    ///
-    /// これは**下限**（＝一段式のときの値）。カードが上がる間は `attributionLift` が
-    /// 可視カードの上縁まで毎フレーム引き上げる（`Coordinator.applyAttributionLift`）。
-    ///
-    /// **この値はカメラには効かせない**（`Coordinator.compensatingMargin` で打ち消す）。
+    /// 署名を持ち上げる**下限**（＝一段式のときの値）。MKMapView は署名を `layoutMargins` の
+    /// 内側にしか置かないので、常駐 sheet に食われないためにはここで逃がすしかない。カードが上がる
+    /// 間は `attributionLift` が引き上げる。**この値はカメラには効かせない**。
     static let attributionBottomMargin: CGFloat = 100
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -246,18 +187,16 @@ struct MapCanvas: UIViewRepresentable {
             MKMarkerAnnotationView.self,
             forAnnotationViewWithReuseIdentifier: Coordinator.droppedPinReuseIdentifier
         )
-        // 既定では safe area ぶんが layoutMargins に入り、setVisibleMapRect がそのぶん引いた画を出す
-        // （要求ズームより約 0.17 浅くなる）。余白は呼び出し側が edgePadding で明示する方針なので殺す。
-        // 下辺だけは署名の置き場として残す（`attributionBottomMargin` 参照。カメラ側で打ち消す）。
+        // 既定では safe area ぶんが layoutMargins に入り、要求ズームより浅い画が出る。余白は
+        // 呼び出し側が edgePadding で明示する方針なので殺し、下辺だけ署名の置き場として残す。
         mapView.insetsLayoutMarginsFromSafeArea = false
         mapView.layoutMargins = UIEdgeInsets(
             top: 0, left: 0, bottom: Self.attributionBottomMargin, right: 0
         )
-        mapView.setRegion(initialRegion, animated: false)
+        mapView.setRegion(Self.japanOverview, animated: false)
         context.coordinator.attach(to: mapView, style: baseStyle)
-        // SwiftUI の状態更新はここでは行わない（呼び出し側が `DispatchQueue.main.async` などで
-        // 1 拍遅らせる約束——`makeUIView` の最中に `@State` を書き換えると
-        // 「ビュー更新中に状態を変更した」実行時警告になる）。
+        // 呼び出し側は 1 拍遅らせる約束 —— `makeUIView` の最中に `@State` を書き換えると
+        // 「ビュー更新中に状態を変更した」実行時警告になる。
         onMapViewReady?(mapView)
         return mapView
     }
@@ -424,16 +363,9 @@ extension MapCanvas {
             }
         }
 
-        /// 署名を常駐カードの上へ逃がす。`layoutMargins.bottom` が唯一の摘み——MapKit は
-        /// 署名をこの内側にしか置かない（規約上、隠すのも自前で描き直すのも不可）。
-        ///
-        /// カードの上縁は window 座標で届くので、地図の座標系へ変換してから下端との差を採る
-        /// （地図は全画面だが、画面高を定数で持つと向き・機種でずれる）。
-        /// 下限は `attributionBottomMargin`、上限は呼び出し側が入れた两段式の高さ。
-        ///
-        /// 余白を動かしても**描画は動かない**（カメラは全 bounds に錨を打っている。
-        /// 動くのは `region` の意味と `setVisibleMapRect` の収め先だけで、そちらは
-        /// `compensatingMargin` が同じ値を引いて打ち消す）。
+        /// 署名を常駐カードの上へ逃がす（`layoutMargins.bottom` が唯一の摘み）。余白を動かしても
+        /// **描画は動かない** —— 動くのは `region` の意味と `setVisibleMapRect` の収め先だけで、
+        /// そちらは `compensatingMargin` が同じ値を引いて打ち消す。
         private func applyAttributionLift(_ lift: MapAttributionLift, on mapView: MKMapView) {
             let base = MapCanvas.attributionBottomMargin
             let margin = max(lift.resolvedLift(in: mapView) ?? base, base)
@@ -667,8 +599,8 @@ extension MapCanvas {
                     : MapCameraPlanner.enclosingRect(of: coordinates)
                 guard let raw = fitted else { return }
                 let rect = MapCameraPlanner.clampedToMaxZoom(raw, viewSize: size)
-                // カードに譲る帯は実測（可視カードの上縁）を第一の出所にする。指令に値が入って
-                // いればそちらを尊重する（harness や、まだカードが測れていない経路）。
+                // カードに譲る帯は実測（可視カードの上縁）を第一の出所にし、指令に値が入って
+                // いればそちらを尊重する。
                 let cardInset = bottomInset
                     ?? parent.attributionLift.rawLift(in: mapView)
                     ?? parent.attributionLift.ceiling
@@ -680,14 +612,9 @@ extension MapCanvas {
                     ),
                     on: mapView
                 )
-                // 収め先の計算と実際の移動を**分ける**のが肝（2026-08-11・録画のコマ送りで確定）。
-                // `setVisibleMapRect` 系で動かすと、日本全境→街区のような大きな寄りが**飛ばずに
-                // 切り替わる**（500ms ほど誤差程度に動いた後、1 コマで着く。`UIView.animate` の
-                // 1.2 秒も拾わない）。同じ距離を `setRegion(animated:)` で動かすと最初から最後まで
-                // 滑るので、寄せ幅ではなく API の側の性質。
-                // なので余白ぶんの計算だけ `mapRectThatFits`（副作用なしの純計算）で済ませ、
-                // 動かすのは定位钮と同じ `setRegion` 経路に渡す。どちらも同じ論理視口
-                // （`bounds` − `layoutMargins`）に収めるので、着いた絵は前と画素単位で一致する（実測）。
+                // 収め先の計算と移動を**分ける**のが肝：`setVisibleMapRect` 系だと大きな寄りが
+                // 飛ばずに 1 コマで切り替わるが、`setRegion(animated:)` なら滑る。なので余白は
+                // `mapRectThatFits`（純計算）で畳み、動かすのは `setRegion` に渡す。
                 move(
                     to: MKCoordinateRegion(mapView.mapRectThatFits(rect, edgePadding: padding)),
                     on: mapView,
@@ -715,20 +642,9 @@ extension MapCanvas {
             animateCamera { mapView.setRegion(region, animated: true) }
         }
 
-        /// 署名を sheet の上へ逃がすために `layoutMargins.bottom` へ入れた量を、
-        /// カメラ指令からだけ差し引いて返す。**定数ではなく今の余白を読む**——
-        /// 余白はカードの高さに合わせて動くので（`applyAttributionLift`）、
-        /// 定数で引くと持ち上がっている最中の指令だけ縮尺がずれる。
-        ///
-        /// MKMapView にとって `layoutMargins` は「地図の論理視口はこの内側」という宣言で、
-        /// `setVisibleMapRect(_:edgePadding:)` はその論理視口をさらに `edgePadding` で
-        /// 狭めた枠に矩形を収める。**下辺だけ**同量を引けば枠は画面いっぱいに戻り、
-        /// 縮尺も中心も余白 0 のときと画素単位で一致する。
-        ///
-        /// 実測（harness の TYO ＝ z12 要求・iPhone 17 Pro・余白 80 で検証）：
-        /// 戻さないと z11.86。上下に半分ずつ分けて戻すと縮尺は z12.00 に直るが、枠の中心が
-        /// 余白の半分だけ上へ寄り、描画が丸ごと 40pt 上がる（余白 0 版との画素差分で確認）。
-        /// だから半分ずつではなく下辺で一括して戻す。
+        /// 署名のために `layoutMargins.bottom` へ入れた量をカメラ指令からだけ差し引く。**定数では
+        /// なく今の余白を読む**（余白はカードの高さに合わせて動く）。戻すのは**下辺だけ** ——
+        /// 上下に半分ずつ分けると縮尺は直るが枠の中心が上へ寄って描画が丸ごと上がる。
         private static func compensatingMargin(
             _ padding: UIEdgeInsets = .zero,
             on mapView: MKMapView
@@ -738,11 +654,9 @@ extension MapCanvas {
             return padding
         }
 
-        /// `mapView.region` は上の論理視口（＝署名ぶんの余白を除いた帯）を指すので、そのまま
-        /// 外へ流すと中心が実際の画面中心より余白の半分だけ北にずれる。深リンクの `c=` と
-        /// 状態復元はこの値を保存して次回 `.center` で戻すため、放っておくと起動のたびに
-        /// 同じ量ずつ北へ流れていく。画面中心の座標を引き直し、緯度方向の span だけ余白ぶん
-        /// 伸ばして相殺する（左右の余白は 0 なので経度方向・ズームは元のままで正しい）。
+        /// `mapView.region` は論理視口（署名ぶんの余白を除いた帯）を指すので、そのまま外へ流すと
+        /// 中心が余白の半分だけ北にずれ、状態復元のたびに同じ量ずつ流れていく。画面中心を引き直し、
+        /// 緯度方向の span だけ余白ぶん伸ばして相殺する（左右の余白は 0 なので経度側はそのまま）。
         private func fullBoundsRegion(of mapView: MKMapView) -> MKCoordinateRegion {
             let height = mapView.bounds.height
             let inner = height - mapView.layoutMargins.bottom
@@ -763,16 +677,9 @@ extension MapCanvas {
             move(to: rect, padding: Self.compensatingMargin(on: mapView), on: mapView, animated: animated)
         }
 
-        /// 矩形を余白付きで収める（`.center` と一覧からの `.flyToPoint`）。
-        ///
-        /// 余白は `mapRectThatFits(_:edgePadding:)`（副作用なしの純計算）で先に畳んでおき、
-        /// 動かすのは素の overload に渡す。どちらも同じ論理視口（`bounds` − `layoutMargins`）へ
-        /// 収める実装なので、着いた絵は `edgePadding:` 付きで動かしていた版と画素単位で一致する
-        /// （2026-08-11・一覧から「東京タワー」を開いた画で照合）。この経路は 1.2 秒かけて
-        /// ちゃんと滑る（日本全境→東京の街区まで、コマ送りで確認）。
-        ///
-        /// 作品の枠フィット（`.fitWork`）だけは**同じ書き方では滑らず**、`setRegion` 経路に
-        /// 渡している —— 理由と実測はあちらのコメントに。
+        /// 矩形を余白付きで収める（`.center` と一覧からの `.flyToPoint`）。この経路はちゃんと滑る。
+        /// 作品の枠フィット（`.fitWork`）だけは同じ書き方では滑らないので `setRegion` に渡している
+        /// —— 理由はあちらのコメントに。
         private func move(
             to rect: MKMapRect,
             padding: UIEdgeInsets,
@@ -824,8 +731,8 @@ extension MapCanvas {
 
         // MARK: 落針（長押し）
 
-        /// `nil` → 撤去、値あり → 無ければ追加・位置が変われば作り直す（`MKPointAnnotation` は
-        /// 座標を直接書き換えられるが、削除→追加のほうが `animatesWhenAdded` の落下演出を毎回拾える）。
+        /// `nil` → 撤去、値あり → 作り直す。座標を直接書き換えるより、削除→追加のほうが
+        /// `animatesWhenAdded` の落下演出を毎回拾える。
         private func applyDroppedPin(_ coordinate: CLLocationCoordinate2D?, on mapView: MKMapView) {
             if let existing = droppedPinAnnotation {
                 mapView.removeAnnotation(existing)
@@ -880,8 +787,7 @@ extension MapCanvas {
 
         func mapView(_ mapView: MKMapView, didAdd views: [MKAnnotationView]) {
             for view in views {
-                // ユーザー位置と落針は自前のフェード＋スケールを掛けない——落針は
-                // `animatesWhenAdded`（系统の落下演出）だけに任せる（二重演出になるのを防ぐ）。
+                // ユーザー位置と落針には自前の演出を掛けない（落針は系统の落下演出に任せる）。
                 guard !(view.annotation is MKUserLocation),
                       !(view.annotation is MKPointAnnotation)
                 else { continue }

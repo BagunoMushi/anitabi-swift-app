@@ -12,20 +12,12 @@ import Vision
 
 /// 从剧照里抠出的主体（通常是角色）。
 struct SubjectCutout {
-    /// 去掉背景后的图像：**尺寸和构图与原图一致，角色留在原位**，只是背景变成透明。
-    /// 方向已归一化为 `.up`。
-    ///
-    /// 这是 Vision 的**原始输出**，没做任何边缘处理 —— 收边交给 `SubjectMatteRefiner`，
-    /// 因为强度要能被用户实时调，得留着这份原图反复重算。
-    ///
-    /// 保持原位是刻意的 —— 叠加层用的是同一套 `scaledToFill` 和变换手势，
-    /// 换成这张图时角色在屏幕上的位置分毫不动，背景则透出实时相机画面用于对齐。
-    /// 若将来要做「角色贴纸」，再另出一版裁到外接框的。
+    /// 去掉背景后的图像：**尺寸和构图与原图一致，角色留在原位**，只是背景变透明 —— 这样换图时
+    /// 角色在屏幕上分毫不动，背景则透出实时相机画面用于对齐。这里留的是 Vision 的原始输出，
+    /// 收边交给 `SubjectMatteRefiner`（强度要能实时调，得反复重算）。
     let image: UIImage
 
-    /// 主体像素占原图的比例（0~1）。拿不到时为 `nil`。
-    ///
-    /// 判断「抠得靠不靠谱」的主要信号：过小多半只抠到了零碎的角落，
+    /// 主体像素占原图的比例（0~1）。判断「抠得靠不靠谱」的主要信号：过小多半只抠到零碎的角落，
     /// 过大多半是没能把角色和背景分开、整张图被当成了前景。
     let coverage: CGFloat?
 
@@ -34,8 +26,6 @@ struct SubjectCutout {
     let source: UIImage
 
     /// 是否值得拿去叠加的粗判。覆盖率未知时不拦（宁可放过，不误杀）。
-    ///
-    /// - Note: 阈值是拍脑袋的初值，实测下来不合适再调。
     var isPlausible: Bool {
         guard let coverage else { return true }
         return coverage > 0.02 && coverage < 0.85
@@ -56,17 +46,13 @@ enum SubjectExtractionError: LocalizedError {
 
 // MARK: - Vision 实现
 
-/// 剧照主体抠图，基于 `VNGenerateForegroundInstanceMaskRequest`（iOS 17+），
-/// 也就是「照片」App 长按图片抠主体的那套系统能力：零体积、零下载、走 ANE。
-///
-/// 它是按真实照片训练的，对二次元剧照会有边缘脏、大块缺失等问题，
-/// 交给 `SubjectMatteRefiner` 和 `CutoutPainter` 收拾。
+/// 剧照主体抠图，基于 `VNGenerateForegroundInstanceMaskRequest`（iOS 17+），也就是「照片」App
+/// 长按图片抠主体的那套系统能力：零体积、零下载、走 ANE。它按真实照片训练，对二次元剧照会有
+/// 边缘脏、大块缺失等问题，交给 `SubjectMatteRefiner` 和 `CutoutPainter` 收拾。
 final class VisionSubjectExtractor {
 
-    /// 送进 Vision 前的长边上限。
-    ///
-    /// 剧照原图可能上千像素，直接跑既慢又费内存；抠出来的角色只用于叠在取景框上，
-    /// 这个分辨率绰绰有余。将来若要按原图分辨率合成，再改成「小图算 mask、原图套用」。
+    /// 送进 Vision 前的长边上限。原图直接跑既慢又费内存，而抠出来的角色只叠在取景框上，
+    /// 这个分辨率绰绰有余。
     private static let analysisMaxDimension: CGFloat = 1536
 
     /// 统计 mask 时的采样上限（长边）。coverage 只是个比例，不需要逐像素精确。
@@ -128,9 +114,7 @@ final class VisionSubjectExtractor {
     }
 
     /// mask 的平均值 = 主体像素占比。按 `samplingMaxDimension` 抽样，不逐像素扫。
-    ///
-    /// Vision 没有承诺 mask 的像素格式，所以这里只认已知的两种；遇到别的返回 `nil`，
-    /// 由调用方退到外接框估算。
+    /// Vision 没有承诺 mask 的像素格式，所以只认已知的两种，遇到别的返回 `nil`。
     private static func averageValue(of mask: CVPixelBuffer) -> CGFloat? {
         CVPixelBufferLockBaseAddress(mask, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(mask, .readOnly) }
@@ -171,19 +155,5 @@ final class VisionSubjectExtractor {
 
         guard samples > 0 else { return nil }
         return CGFloat(total / Double(samples))
-    }
-
-}
-
-// MARK: - 诊断
-
-extension SubjectCutout: CustomStringConvertible {
-    var description: String {
-        let coverageText = coverage.map { String(format: "%.1f%%", $0 * 100) } ?? "未知"
-        return String(
-            format: "SubjectCutout(%.0f×%.0f, coverage %@, plausible %@)",
-            image.size.width, image.size.height,
-            coverageText, isPlausible ? "yes" : "no"
-        )
     }
 }

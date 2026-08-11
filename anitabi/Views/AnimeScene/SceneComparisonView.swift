@@ -16,7 +16,8 @@ struct SceneComparisonView: View {
     // MARK: - 场景信息
     let scenePhotoURL: URL
     let sceneName: String
-    let sceneColor: String
+    /// 成片的背景色（作品主题色）。呼叫方负责把 hex 解析好，取不到时给中性色。
+    let sceneColor: UIColor
     let sceneLocation: String
 
     // MARK: - 环境
@@ -342,7 +343,7 @@ struct SceneComparisonView: View {
 
                 cornerButton(systemName: "photo.on.rectangle.angled",
                              accessibility: String(localized: "更换参考图"))
-                    .pickReferenceSheet(onPick: applyCustomReference)
+                    .photoPickSheet(onPick: applyCustomReference)
             }
         }
         .padding(24)
@@ -385,18 +386,16 @@ struct SceneComparisonView: View {
             if !isLoadingAnime {
                 cornerButton(systemName: "photo.on.rectangle.angled",
                              accessibility: String(localized: "更换参考图"))
-                    .pickReferenceSheet(onPick: applyCustomReference)
+                    .photoPickSheet(onPick: applyCustomReference)
             }
         }
     }
 
     // MARK: - 右侧竖直操作栏
 
-    /// 主按钮（快门 / 生成对比 / 完成修补）**永远锚在垂直正中**，不随其他按钮增减而移动。
-    ///
-    /// 相机 UI 里快门位置是肌肉记忆，浮动会很难受。做法：上下两组辅助按钮各占一半弹性高度、
-    /// 分别向中间对齐，中间留一个固定高度的槽位 —— 于是槽位天然落在正中，
-    /// ZStack 里居中的主按钮正好嵌进去。
+    /// 主按钮（快门 / 生成对比 / 完成修补）**永远锚在垂直正中**，不随其他按钮增减而移动
+    /// —— 相机 UI 里快门位置是肌肉记忆。做法是让上下两组辅助按钮各占一半弹性高度、分别向中间
+    /// 对齐，中间留一个固定高度的槽位，于是槽位天然落在正中。
     private func railStack<Upper: View, Primary: View, Lower: View>(
         @ViewBuilder upper: () -> Upper,
         @ViewBuilder primary: () -> Primary,
@@ -445,10 +444,8 @@ struct SceneComparisonView: View {
     }
 
     /// 上组＝切换「看到什么」，下组＝高频动作，主按钮居中。
-    ///
-    /// **每组最多 2 个按钮**：半边可用高度约 140pt，塞第三个会溢出去撞到顶栏。
-    /// 名额只有 4 个，所以「重置对齐」没有按钮 —— 双击参考图即可重置（见 `referenceOverlay`），
-    /// 它是唯一一个已有等价手势的，砍它代价最小。
+    /// **每组最多 2 个按钮** —— 半边可用高度约 140pt，塞第三个会溢出去撞到顶栏。所以「重置对齐」
+    /// 没有按钮，改用双击参考图（见 `referenceOverlay`）：它是唯一已有等价手势的，砍它代价最小。
     private var defaultRail: some View {
         railStack {
             if hasReference { cutoutRailButton }
@@ -471,7 +468,7 @@ struct SceneComparisonView: View {
                 }
             } else {
                 railIconLabel(systemName: "photo.stack", accessibility: String(localized: "相册"))
-                    .pickCapturedSheet(onPick: applyLibraryPhoto)
+                    .photoPickSheet(onPick: applyLibraryPhoto)
             }
         }
     }
@@ -551,10 +548,8 @@ struct SceneComparisonView: View {
             .allowsHitTesting(false)
     }
 
-    /// 笔刷在屏幕上的真实半径。
-    ///
-    /// 半径是「图像长边的比例」，而取景框比例 == 参考图比例（`scaledToFill` 恰好铺满），
-    /// 于是图像长边正好对应取景框长边；再乘上当前缩放即可。
+    /// 笔刷在屏幕上的真实半径。半径是「图像长边的比例」，而取景框比例 == 参考图比例，
+    /// 于是图像长边正好对应取景框长边，再乘上当前缩放即可。
     private func brushScreenRadius(in frame: CGSize) -> CGFloat {
         brushRadiusRatio * max(frame.width, frame.height) * liveScale
     }
@@ -876,11 +871,9 @@ struct SceneComparisonView: View {
             }
     }
 
-    /// 把取景框内的触点反解成参考图上的归一化坐标（0~1，左上原点）。
-    ///
-    /// 叠加层依次经过 `scaleEffect` → `rotationEffect` → `offset`（都以中心为基准），
-    /// 这里按相反顺序逐个撤销。取景框比例 == 参考图比例，所以 `scaledToFill` 恰好铺满、
-    /// 没有额外的裁切偏移，归一化坐标可以直接当图像坐标用。
+    /// 把取景框内的触点反解成参考图上的归一化坐标（0~1，左上原点）—— 叠加层依次经过
+    /// `scaleEffect` → `rotationEffect` → `offset`，这里按相反顺序逐个撤销。取景框比例 == 参考图
+    /// 比例，所以 `scaledToFill` 恰好铺满、没有额外裁切偏移，归一化坐标可直接当图像坐标用。
     private func normalizedPoint(_ location: CGPoint, in frame: CGSize) -> CGPoint {
         guard frame.width > 0, frame.height > 0 else { return .zero }
         let center = CGPoint(x: frame.width / 2, y: frame.height / 2)
@@ -1027,7 +1020,7 @@ struct SceneComparisonView: View {
         let aspect = animeAspect ?? animeImageFull.aspectRatioValue
         let name = sceneName
         let location = sceneLocation
-        let bgColor = UIColor(Color(hex: sceneColor)) // 在主线程把 SwiftUI Color 转成 UIColor
+        let bgColor = sceneColor
 
         DispatchQueue.global(qos: .userInitiated).async {
             let generator = ComparisonImageGenerator()
@@ -1129,12 +1122,11 @@ private struct VerticalOpacitySlider: View {
     }
 }
 
-// MARK: - 选图 sheet 修饰符（参考图 / 实拍图各自独立，避免单视图多 sheet 冲突）
+// MARK: - 选图 sheet 修饰符
+
+/// 点一下就弹相册。每处调用各自持有 `isPresented`，所以同一视图上挂多个也不会互相抢占。
 private extension View {
-    func pickReferenceSheet(onPick: @escaping (UIImage) -> Void) -> some View {
-        modifier(PhotoPickSheet(onPick: onPick))
-    }
-    func pickCapturedSheet(onPick: @escaping (UIImage) -> Void) -> some View {
+    func photoPickSheet(onPick: @escaping (UIImage) -> Void) -> some View {
         modifier(PhotoPickSheet(onPick: onPick))
     }
 }
@@ -1204,7 +1196,7 @@ struct ImagePicker: UIViewControllerRepresentable {
     SceneComparisonView(
         scenePhotoURL: URL(string: "https://image.anitabi.cn/points/272510/39zlm4tj.jpg")!,
         sceneName: "东京塔夜景",
-        sceneColor: "FF5733",
+        sceneColor: .systemOrange,
         sceneLocation: "东京都港区芝公园4丁目"
     )
 }

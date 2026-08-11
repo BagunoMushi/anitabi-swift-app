@@ -101,18 +101,9 @@ class ComparisonImageGenerator {
     
     // MARK: - 合体图（抠像模式）
 
-    /// 把抠出来的角色直接叠合到实拍图上，产出「和角色同框」的成片 —— 不是上下对比卡片。
-    ///
-    /// 关键是**精确复刻取景框里所见的位置**：叠加层在屏幕上依次经过
-    /// `scaleEffect` → `rotationEffect` → `offset`（都以中心为基准），这里按同样的顺序
-    /// 拼 CTM。位移用归一化比例传入，于是屏幕点数和照片像素之间的换算自动成立。
-    ///
-    /// 抠图与实拍图同比例（都等于参考图比例），所以铺满整幅即等价于屏幕上的 `scaledToFill`。
-    ///
-    /// - Parameters:
-    ///   - userImage: 已按参考图比例裁切的实拍图，决定成片尺寸
-    ///   - cutout: 透明底的角色图，与 `userImage` 同比例
-    ///   - offsetRatio: 位移占取景框宽/高的比例
+    /// 把抠出来的角色叠到实拍图上，产出「和角色同框」的成片（不是上下对比卡片）。
+    /// 要**精确复刻取景框里所见的位置**：屏幕上依次经过 `scaleEffect` → `rotationEffect` →
+    /// `offset`，这里按同样顺序拼 CTM，位移用归一化比例传入以摆脱分辨率。
     func generateCompositeImage(
         userImage: UIImage,
         cutout: UIImage,

@@ -2,25 +2,16 @@
 //  GlassCompat.swift
 //  anitabi
 //
-//  最低適配は **iOS 17.0**（2026-08-10 に 26.0 から引き下げ。SDK は 26 のまま）。
-//  Liquid Glass（`glassEffect` / `GlassEffectContainer` / `.glassProminent`）は
-//  iOS 26 で入った API なので、26 未満でも走らせるには分岐が要る。
-//
-//  分岐を各ビューに撒くと「玻璃を足したのに旧 OS の落とし先を書き忘れる」が起きるので、
-//  **玻璃を掛ける口はここに集約**する。新しく玻璃を使うときもこのファイルに口を足すこと。
-//
-//  落とし先の方針：iOS 18 の Apple マップの浮控と同じ「材质 ＋ 極薄い影」。
-//  玻璃の屈折・追従は再現しない（似せようとすると旧 OS で不自然になる）。
-//  なお SDK 26 で組んでいる以上、iOS 26 実機では系统 chrome も含めて従来どおり玻璃になる。
+//  最低適配は **iOS 17.0**（SDK は 26）なので Liquid Glass には分岐が要る。撒くと「玻璃を足したのに
+//  旧 OS の落とし先を書き忘れる」が起きるので、**玻璃を掛ける口はここに集約**する（新しく使うとき
+//  もここに口を足す）。落とし先は「材质 ＋ 極薄い影」だけで、屈折・追従は真似しない。
 //
 
 import SwiftUI
 
 extension View {
     /// カプセル形の玻璃背景。iOS 26 は Liquid Glass、それ未満は `.regularMaterial`。
-    ///
-    /// - Parameter interactive: 押下に追従する玻璃（`.regular.interactive()`）にするか。
-    ///   26 未満では無効——材质は押下に反応しないので、単に効果が乗らないだけ。
+    /// - Parameter interactive: 押下に追従する玻璃にするか（26 未満では単に効果が乗らない）。
     @ViewBuilder
     func capsuleGlass(interactive: Bool = false) -> some View {
         if #available(iOS 26, *) {
@@ -47,8 +38,8 @@ extension View {
     }
 }
 
-/// `GlassEffectContainer` の互換ラッパー。26 未満では中身を素通しする——容器は
-/// 玻璃同士の合流を扱う器なので、玻璃が無い OS では存在しなくていい。
+/// `GlassEffectContainer` の互換ラッパー。容器は玻璃同士の合流を扱う器なので、
+/// 玻璃が無い OS では中身を素通しするだけでよい。
 struct GlassContainerCompat<Content: View>: View {
     @ViewBuilder var content: Content
 

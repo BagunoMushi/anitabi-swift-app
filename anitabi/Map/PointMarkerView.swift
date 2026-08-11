@@ -2,12 +2,9 @@
 //  PointMarkerView.swift
 //  anitabi
 //
-//  地標の標注。主題点 ⇄ 劇照サムネイル ⇄ 選択気球を **同じビューの中で** 切り替える。
-//  形態ごとにクラスを分けると、ズームを跨いだ瞬間に全標注が remove/add されて画面が瞬く。
-//
-//  座標のアンカーは形態で変わる（点＝中心、サムネイル／気球＝尾の先端）。
-//  `centerOffset` を書き換えても MapKit が再配置するのは次のレイアウト時なので、
-//  差分ぶんだけ `center` も自分でずらして即座に見た目を合わせる（`applyGeometry`）。
+//  地標の標注。主題点 ⇄ 劇照サムネイル ⇄ 選択気球を**同じビューの中で**切り替える（形態ごとに
+//  クラスを分けると、ズームを跨いだ瞬間に全標注が remove/add されて画面が瞬く）。座標のアンカーも
+//  形態で変わるので、`centerOffset` と `center` を同時に動かして辻褄を合わせる（`applyGeometry`）。
 //
 
 import MapKit
@@ -257,12 +254,9 @@ final class PointMarkerView: MKAnnotationView {
 
 // MARK: - 主題点
 
-/// Web `bangumi-point`（circle 層）等価物。
-///
-/// Mapbox の circle は「半径 r の塗り」の**外側**に `circle-stroke-width` を足すので、
-/// ビューの一辺は `2r + 2×stroke`、白描边は UIView の border（内側に描かれる）でそのまま作れる
-/// ——残る塗り部分の直径がちょうど `2r` になる。
-/// 影は付けない（Web の circle 層には影が無い。白描边だけで地図から浮く）。
+/// Web `bangumi-point`（circle 層）等価物。Mapbox の circle は塗りの**外側**に描边を足すので、
+/// ビューの一辺は `2r + 2×stroke` で、白描边は UIView の border（内側に描かれる）でそのまま作れる。
+/// 影は付けない —— Web の circle 層にも無く、白描边だけで地図から浮く。
 private final class DotMarkerBody: UIView {
     private let innerOutline = CALayer()
 
@@ -304,18 +298,18 @@ private final class DotMarkerBody: UIView {
 
 // MARK: - 劇照サムネイル標
 
-/// Web の劇照 2 層の等価物。ズームで様式だけを差し替える（ビューは作り直さない）。
-///
-/// - `.card` ＝ `points-image` 層（`4b970b29.js:2364-2394`）。160×134px の canvas を
-///   `pixelRatio: 2` で載せるので画面上は 80×67pt（Web 原版は無枠だが、意匠は下記に統一）。
-/// - `.bubble` ＝ `bangumi-points-theme` 層（`37476042.js:139-190`）。100×89px ÷2 ＝ 50×44.5pt。
-///   作品色の 1pt 枠と、その下に作品色の滴、滴の上に画像で塗られた小三角が乗る。
-///
-/// **意匠は両者とも bubble 式（作品色枠＋滴）に統一**。Web の「大カード無枠／小泡有枠」の
-/// 2 意匠混在はユーザー指摘（2026-08-09）で棄却——寸法の 2 段だけを残す。
+/// Web の劇照 2 層の等価物。ズームで**寸法だけ**を差し替える（ビューは作り直さない）。
+/// 意匠は 2 段とも同じ「作品色の枠 ＋ 滴 ＋ 画像の内三角」—— Web の「大カード無枠／小泡有枠」の
+/// 2 意匠混在は同画面でおかしいので採らない（寸法は `MapMarkerMetrics.PhotoPlate`）。
 private final class PhotoMarkerBody: UIView {
 
-    enum Style { case card, bubble }
+    enum Style {
+        case card, bubble
+
+        var plate: MapMarkerMetrics.PhotoPlate {
+            self == .card ? .card : .bubble
+        }
+    }
 
     private let frameLayer = CAShapeLayer()
     private let contentLayer = CALayer()
@@ -328,13 +322,7 @@ private final class PhotoMarkerBody: UIView {
 
     /// 尾の先端が座標。ビューの中心はそのぶん上に置く。
     var markerCenterOffset: CGPoint {
-        switch style ?? .bubble {
-        case .card:
-            // Web の `icon-offset: [0,-1]` ぶんさらに 1pt 上げる。
-            CGPoint(x: 0, y: -bounds.height / 2 - MapMarkerMetrics.PhotoCard.anchorLift)
-        case .bubble:
-            CGPoint(x: 0, y: -bounds.height / 2)
-        }
+        CGPoint(x: 0, y: -bounds.height / 2 - (style ?? .bubble).plate.anchorLift)
     }
 
     override init(frame: CGRect) {
@@ -367,10 +355,7 @@ private final class PhotoMarkerBody: UIView {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        switch newStyle {
-        case .card: layOutCard()
-        case .bubble: layOutBubble()
-        }
+        layOut(newStyle.plate)
         placeholder.colors = [
             themeColor.cgColor,
             themeColor.mixed(with: .black, amount: 0.28).cgColor,
@@ -388,72 +373,38 @@ private final class PhotoMarkerBody: UIView {
 
     // MARK: 様式
 
-    /// 大カードも小泡と**同じ意匠**（作品色の枠＋滴）。Web は 2 意匠あったが、同画面での
-    /// 混在はおかしいというユーザー指摘（2026-08-09）で寸法 2 段・意匠 1 本に統一した。
-    private func layOutCard() {
-        typealias Metrics = MapMarkerMetrics.PhotoCard
-        layOutFramed(
-            totalSize: Metrics.totalSize,
-            bodySize: Metrics.bodySize,
-            cornerRadius: Metrics.cornerRadius,
-            borderWidth: Metrics.borderWidth,
-            drip: Metrics.dripSize,
-            innerTail: Metrics.innerTailSize,
-            innerTailOverlap: Metrics.innerTailOverlap
-        )
-    }
+    /// 作品色の枠を敷き、その内側を画像（無ければ主題色グラデ）で塗る。
+    /// 大カードと小泡は**同じ意匠**なので、違うのは渡す寸法だけ。
+    private func layOut(_ plate: MapMarkerMetrics.PhotoPlate) {
+        bounds = CGRect(origin: .zero, size: plate.totalSize)
 
-    private func layOutBubble() {
-        typealias Metrics = MapMarkerMetrics.PhotoBubble
-        layOutFramed(
-            totalSize: Metrics.totalSize,
-            bodySize: Metrics.bodySize,
-            cornerRadius: Metrics.cornerRadius,
-            borderWidth: Metrics.borderWidth,
-            drip: Metrics.dripSize,
-            innerTail: Metrics.innerTailSize,
-            innerTailOverlap: Metrics.innerTailOverlap
-        )
-    }
-
-    private func layOutFramed(
-        totalSize: CGSize,
-        bodySize: CGSize,
-        cornerRadius: CGFloat,
-        borderWidth: CGFloat,
-        drip: CGSize,
-        innerTail: CGSize,
-        innerTailOverlap: CGFloat
-    ) {
-        bounds = CGRect(origin: .zero, size: totalSize)
-
-        let body = CGRect(origin: .zero, size: bodySize)
+        let body = CGRect(origin: .zero, size: plate.bodySize)
         frameLayer.isHidden = false
         frameLayer.frame = bounds
         frameLayer.fillColor = themeColor.cgColor
-        frameLayer.path = Self.plate(
+        frameLayer.path = Self.platePath(
             body: body,
-            cornerRadius: cornerRadius,
-            tail: drip,
+            cornerRadius: plate.cornerRadius,
+            tail: plate.dripSize,
             tailTopOverlap: 0.5
         ).cgPath
 
-        let inset = borderWidth
+        let inset = plate.borderWidth
         let inner = body.insetBy(dx: inset, dy: inset)
         contentLayer.frame = bounds
         placeholder.frame = inner
         imageLayer.frame = inner
         contentMask.frame = bounds
-        contentMask.path = Self.plate(
+        contentMask.path = Self.platePath(
             body: inner,
-            cornerRadius: cornerRadius - inset,
-            tail: innerTail,
-            tailTopOverlap: innerTailOverlap - inset
+            cornerRadius: plate.cornerRadius - inset,
+            tail: plate.innerTailSize,
+            tailTopOverlap: plate.innerTailOverlap - inset
         ).cgPath
     }
 
     /// 本体（角丸矩形）と下縁の尾を 1 本のパスにする。別レイヤーに分けると継ぎ目に線が出る。
-    private static func plate(
+    private static func platePath(
         body: CGRect,
         cornerRadius: CGFloat,
         tail: CGSize,

@@ -2,45 +2,27 @@
 //  AnitabiWebLink.swift
 //  anitabi
 //
-//  Web 版（anitabi.cn）へ手渡すための URL 組み立て。呼び出し側は SFSafariViewController
-//  （`SafariSheet`）か `UIApplication.open` に渡すだけ。
-//
-//  ドメイン（2026-08-09 実測。**ここが今この時点の事実で、計画書の想定とは違う**）：
-//
-//      curl -sI https://anitabi.cn/create-point   → 301 Location: https://www.anitabi.cn/…
-//      dig +short www.anitabi.cn                  → （応答なし＝名前解決できない）
-//      curl -sI https://ww.anitabi.cn/create-point → 200 text/html（SPA 本体）
-//
-//  つまり `anitabi.cn` は**死んでいる `www` へ 301 する**ので、そのままブラウザに渡すと
-//  SFSafariViewController が「サーバが見つかりません」で終わる（実機・シミュレータで再現）。
-//  ページを開く URL は同じ配信の別名である `ww.anitabi.cn` を使う。`www` が復活したら
-//  下の `pageHost` を 1 行差し替えるだけで全リンクが戻る。
-//
-//  画像は `image.anitabi.cn` / `img-tc.anitabi.cn`（`AnitabiImage` の担当）。
-//
-//  クエリは `URLComponents` に任せず自前で組む —— `urlQueryAllowed` は `&` `+` `=` を
-//  通してしまうため、地標名に `&` が含まれると（実データに存在する）パラメータが割れる。
+//  Web 版へ手渡す URL の組み立て。ドメインは `ww.anitabi.cn` —— `anitabi.cn` は名前解決できない
+//  `www` へ 301 するので、そのまま渡すと「サーバが見つかりません」で終わる（復活したら
+//  `pageHost` 1 行で戻る）。クエリは自前で組む：`urlQueryAllowed` は `&` を通してしまう。
 //
 
 import CoreLocation
 import Foundation
+import UIKit
 
 enum AnitabiWebLink {
 
     /// ページを開くときのホスト（分享・貢献フロー・网页版すべて共通）。
-    /// 冒頭のコメントの実測どおり、今は `anitabi.cn` ではなく `ww.anitabi.cn` だけが生きている。
     private static let pageHost = "https://ww.anitabi.cn"
 
-    /// 何もかも失敗したときの落とし先（地図トップ）。`URL(string:)` は下のエンコード後なら
-    /// まず失敗しないが、非オプショナルを返す約束を守るために持っておく。
+    /// 何もかも失敗したときの落とし先（地図トップ）。非オプショナルを返す約束のために持つ。
     private static let fallback = URL(string: "\(pageHost)/map")!
 
     // MARK: - 地図（canonical）
 
-    /// 共有・「在网页版打开」に使う正規 URL。
-    /// `c` は **lng が先**（Web 版の並びをそのまま踏襲）で小数 4 桁。
-    /// 引数を省いたパラメータは URL に出さない。
-    /// `bids`（複数作品フィルタ。阶段 8 の深リンク／Handoff が使う）はカンマ区切りで付ける。
+    /// 共有・「在网页版打开」に使う正規 URL。`c` は **lng が先**（Web 版の並びを踏襲）で
+    /// 小数 4 桁、`bids` はカンマ区切り。引数を省いたパラメータは URL に出さない。
     static func canonical(
         bangumiID: Int? = nil,
         pointID: String? = nil,
@@ -62,8 +44,7 @@ enum AnitabiWebLink {
 
     // MARK: - 貢献フロー
 
-    /// 補传截图（既存地標の編集モード）。Web 版 `pn(point, bangumi)` と同形：
-    /// `?data={JSON}&bangumiId={id}&type=edit`。
+    /// 補传截图（既存地標の編集モード）。Web 版 `pn()` と同形の `?data={JSON}&bangumiId&type=edit`。
     static func createPoint(point: ScenePoint, bangumi: BangumiLite?) -> URL {
         var payload: [String: Any] = [
             "id": point.id,
@@ -85,9 +66,8 @@ enum AnitabiWebLink {
         ])
     }
 
-    /// 长按落针の「在此添加地标」。既存の `ScenePoint` を編集する `createPoint(point:bangumi:)` とは違い、
-    /// まだどの作品にも属さない**新規**地標なので `id`/`bangumiId`/`type=edit` を一切付けない
-    /// —— Web 版 create-point が許す最小合法負荷 `{"geo":[lat,lng]}` だけを渡す。
+    /// 长按落针の「在此添加地标」。まだどの作品にも属さない**新規**地標なので
+    /// `id`/`bangumiId`/`type=edit` は付けず、最小合法負荷 `{"geo":[lat,lng]}` だけ渡す。
     static func createPoint(at coordinate: CLLocationCoordinate2D) -> URL {
         let payload: [String: Any] = ["geo": [coordinate.latitude, coordinate.longitude]]
         let json = (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]))
@@ -95,8 +75,8 @@ enum AnitabiWebLink {
         return url("\(pageHost)/create-point", [("data", json)])
     }
 
-    /// 修正坐标。Web 版 `ms(bangumi, point)` の 15 パラメータをそのまま並べる
-    /// （欠けている値は**空文字で送る**——Web 側のフォームが「キーが無い」ことを想定していない）。
+    /// 修正坐标。Web 版 `ms()` の 15 パラメータをそのまま並べる（欠けている値も**空文字で送る**
+    /// —— Web 側のフォームは「キーが無い」ことを想定していない）。
     static func fixPointGPS(point: ScenePoint, bangumi: BangumiLite?) -> URL {
         url("\(pageHost)/fix-point-gps", [
             ("pid", point.id),
@@ -124,18 +104,25 @@ enum AnitabiWebLink {
         url("https://www.google.com/maps", [("q", String(format: "%.6f,%.6f", lat, lng))])
     }
 
-    /// ストリートビュー。`layer=c` + `cbll` はアプリ側も解釈する古典的な形式で、
-    /// これ以外（`?api=1&map_action=pano`）は Google Maps アプリに渡らないことがある。
+    /// ストリートビュー。`layer=c` + `cbll` はアプリ側も解釈する古典的な形式 ——
+    /// `?api=1&map_action=pano` は Google Maps アプリに渡らないことがある。
     static func streetView(lat: Double, lng: Double) -> URL {
         URL(string: "http://maps.google.com/maps?q=&layer=c&cbll=\(String(format: "%.6f,%.6f", lat, lng))&cbp=11,0,0,0,0")
             ?? fallback
     }
 
     /// Google マイマップのビューア。`mid` を持つ（＝地図インポート由来の）地標の出典リンク。
+    /// `ll` の区切りは Web 版と同じくエンコード済みのカンマで送る。
     static func myMapsViewer(mid: String, lat: Double, lng: Double, zoom: Int = 12) -> URL {
-        // `ll` の区切りは Web 版と同じく `%2C`（エンコード済みのカンマ）で送る。
         URL(string: "https://www.google.com/maps/d/viewer?mid=\(mid.addingPercentEncoding(withAllowedCharacters: queryValueAllowed) ?? mid)&ll=\(lat)%2C\(lng)&z=\(zoom)")
             ?? fallback
+    }
+
+    /// 外部アプリへ渡す。Google マップ／街景は `SFSafariViewController` の中からでは
+    /// 絶対にアプリへ遷移しないので、地図系のリンクは必ずこちらを通す。
+    @MainActor
+    static func openExternally(_ url: URL) {
+        UIApplication.shared.open(url)
     }
 
     /// 巡礼マナーの共同ドキュメント（Web 版の ⚠️ アイコンと同じ飛び先）。

@@ -2,24 +2,9 @@
 //  PointCardSheet.swift
 //  anitabi
 //
-//  地標カード。設計稿 1d（核心页）と 2c（三段式）をそのまま写す。この App の看板機能
-//  ＝**対比撮影への入口**でもある。
-//
-//  档は**二段だけ**（同指示 2026-08-09：「这个页面只允许一段二段」。設計稿 2c の三段式は採らない）：
-//  - 一段式 = **在場導航条**。迷你剧照 ＋ 点名 ＋ 作品/EP/距離の 1 行だけ。地図で道を探す用。
-//  - 两段式 = 礼儀警示 ＋ 剧照大図（180）＋ 動作排 ＋ 備考 ＋ 出典。カードの全部がここに出る。
-//    高さは**中身ぴったり**（`fittedContentHeight` → `SheetLayer.initialHeight`）で、
-//    設計稿の比率 53.1% はその上限。備考が長い点だけがこの中でスクロールする。
-//
-//  呈现の要点：対比撮影（横屏）と画像ビューアの `fullScreenCover` は
-//  **このカードの中身に付ける**。3 枚重なった sheet の上を覆えるのはここから出した
-//  呈现だけで、根（RootView）側に付けると常駐 sheet に隠れてしまう。
-//
-//  外部リンクの出し分け：
-//  - 貢献フロー（补传截图 / 修正坐标 / 网页版）＋出典リンク → `SFSafariViewController`
-//    （端末 Safari と Cookie を共有するのでログイン状態がそのまま使える）
-//  - Google マップ / 街景 → `UIApplication.open`（Google Maps アプリが入っていれば
-//    universal link でそちらが開く。SFSafari の中では絶対にアプリへ渡らない）
+//  地標カード（設計稿 1d / 2c）。この App の看板機能＝**対比撮影への入口**。档は**二段だけ**で、
+//  一段式＝在場導航条、两段式＝カードの全部（高さは中身ぴったりに詰める）。対比撮影と画像
+//  ビューアの `fullScreenCover` は**このカードの中身に付ける** —— 根に付けると sheet に隠れる。
 //
 
 import CoreLocation
@@ -40,17 +25,12 @@ struct PointCardSheet: View {
     var onSelectWork: (Int) -> Void
     var onClose: () -> Void
 
-    /// 貢献フロー・出典リンクの SFSafariViewController。他カードの呈现スタックへ影響させないよう
-    /// router ではなくカード自身で持つ（`WorkCardSheet` と同じ方針）。
-    /// sheet の中身は底部安全区を無効にしてあるので、列の末尾だけ自分で足し戻す。
     @Environment(\.sheetBottomInset) private var sheetBottomInset
 
+    /// 貢献フロー・出典リンクの呈现は router を介さずカード自身が持つ
+    /// （他カードの呈现スタックへ影響させない）。
     @State private var safariItem: SafariItem?
     @State private var isShowingEtiquette = false
-
-    /// テーマ色が取れない作品の代替（`ColorUtilities.anitabiNeutralTheme` と同値）。
-    /// `SceneComparisonView` の `sceneColor` は非オプショナルなので、ここで必ず埋める。
-    private static let fallbackThemeHex = "8A8A6F"
 
     private var point: ScenePoint? {
         store.pointsByBangumi[selection.bangumiID]?.first { $0.id == selection.id }
@@ -76,12 +56,9 @@ struct PointCardSheet: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header(point)
                         // 最小档は**一段式の在場導航条の実高**。中/大档では頭部が別の形に
-                        // 変わるので、一段式の複製を高さ 0 の枠に隠してそちらを測る。
-                        .overlay(alignment: .top) { compactHeaderProbe(point) }
+                        // 変わるので、一段式の複製を隠して置きそちらを測る。
+                        .overlay(alignment: .top) { compactHeader(point).compactHeightProbe(.point) }
 
-                    // 一段式では身份条より下を**描かない**。sheet の中身は底部安全区の下にも
-                    // 描かれるので、高さを身份条ぴったりにしても次の節がホームインジケータ帯に覗く。
-                    // 判定は生の sheet 高さ由来（RootView）なので、拖动に即座に追従する。
                     VStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
                         if point.needsEtiquetteWarning {
                             EtiquetteBar { isShowingEtiquette = true }
@@ -97,19 +74,12 @@ struct PointCardSheet: View {
                         }
                         sourceRow(point)
                     }
-                    // 一段式では中身を**レイアウトからも外す**（高さ 0 に畳む）。opacity だけで
-                    // 隠していた版は、見えないまま場所を要求し続ける —— sheet の高さが足りないぶんを
-                    // SwiftUI が身份条の余白から削るので、カードごとに 3〜10pt 潰れて
-                    // 「首页の検索だけ上、他の 2 枚は下」という食い違いになっていた（実測）。
-                    .frame(height: stage == .compact ? 0 : nil, alignment: .top)
-                    .clipped()
-                    .allowsHitTesting(stage != .compact)
+                    .collapsedInCompactStage(stage)
                 }
                 .scenePadding(.horizontal)
-                .padding(.bottom, SheetMetrics.scrollBottomPadding + sheetBottomInset)
+                .sheetScrollBottomPadding(sheetBottomInset)
                 // 中身の実高を档へ返す（RootView）。剧照・備考・礼儀条の有無で 100pt 近く変わるので、
-                // 設計稿の比率のままだと下の空きが点ごとにばらつく。
-                // このカードは档で高さの変わる要素を持たない（三段式が無い）ので伸びぶんは 0。
+                // 比率のままだと下の空きが点ごとにばらつく。三段式が無いので伸びぶんは 0。
                 .fittedContentHeight(.point, stage: stage, expandedDelta: 0)
                 .animation(.anitabiSpring, value: stage)
             }
@@ -119,12 +89,12 @@ struct PointCardSheet: View {
         .fullScreenCover(item: $router.photoViewer) { item in
             ImageViewer(url: item.url, title: item.title)
         }
-        // 看板機能の入口。既存の 4 引数 init へ 1:1 で渡すだけ（撮影画面側は一切触らない）。
+        // 看板機能の入口（対比撮影）。
         .fullScreenCover(item: $router.cameraSession) { session in
             SceneComparisonView(
                 scenePhotoURL: session.photoURL,
                 sceneName: session.name,
-                sceneColor: session.themeHex ?? Self.fallbackThemeHex,
+                sceneColor: session.themeHex.flatMap(UIColor.init(cssHex:)) ?? .anitabiNeutralTheme,
                 sceneLocation: session.location
             )
         }
@@ -167,16 +137,6 @@ struct PointCardSheet: View {
         .compactBarRow()
     }
 
-    /// 一段式の実高だけを測るための不可視の複製（レイアウトには効かせない）。
-    private func compactHeaderProbe(_ point: ScenePoint) -> some View {
-        compactHeader(point)
-            .environment(\.isMarqueeEnabled, false)
-            .fixedSize(horizontal: false, vertical: true)
-            .compactContentHeight(.point)
-            .hidden()
-            .frame(height: 0, alignment: .top)
-    }
-
     /// 設計稿 2c 两段式／三段式：標題ブロック（18px/900 ＋ 作品 chip ＋ meta）＋ 共有 ◯ ＋ ✕。
     private func fullHeader(_ point: ScenePoint) -> some View {
         CardHeader(title: pointName(point), titleFont: SheetFont.titleLarge, onClose: onClose) {
@@ -207,7 +167,7 @@ struct PointCardSheet: View {
     }
 
     /// 設計稿 1d/2c の作品 chip：主題色 18% の地 ＋ 主題色 50% の縁 ＋ 色点 ＋ 作品名 ＋ `›`。
-    /// 系统の `.bordered` では主題色の枠にならないので自前で組む。
+    /// 系统の `.bordered` では主題色の枠にならないので自前。
     private var workChip: some View {
         Button {
             onSelectWork(selection.bangumiID)
@@ -230,19 +190,16 @@ struct PointCardSheet: View {
         .buttonStyle(.plain)
     }
 
-    /// 設計稿 `EP03 · 08:12 · 距我 1.2 km`。作品 chip の直後に続けるので先頭にも区切りを置く。
-    ///
-    /// ただし **EP／タイムコードは剧照の右下に焼き込んである**（`MediaBadge`）。同じ物を副題にも
-    /// 書くと二度書きになるうえ、この行でいちばん要る「現在地から N km」を押し出して省略させる。
-    /// なので剧照がある点では出さない（剧照が無い点は徽章も無いので、こちらに出す）。
+    /// 設計稿 `· EP03 · 08:12 · 距我 1.2 km`（作品 chip の直後に続くので先頭にも区切りを置く）。
+    /// EP／タイムコードは剧照の右下の徽章と二度書きになるので、剧照がある点では省く。
     private func metaText(_ point: ScenePoint) -> String {
         let parts = metaParts(point, includesEpisode: cardImageURL == nil)
         guard !parts.isEmpty else { return "" }
         return "· " + parts.joined(separator: " · ")
     }
 
-    /// 一段式は作品名から続けて書くので区切りの前置きは付けない。
-    /// こちらは剧照が迷你サムネイルで徽章が見えないので、EP／タイムコードも書く。
+    /// 一段式は作品名から続けて書くので前置きの区切りは無し。迷你サムネイルには徽章が
+    /// 乗らないので、EP／タイムコードもこちらに書く。
     private func compactMetaText(_ point: ScenePoint) -> String {
         let parts = metaParts(point, includesEpisode: true)
         return ([store.name(forBangumi: selection.bangumiID)] + parts).joined(separator: " · ")
@@ -264,9 +221,9 @@ struct PointCardSheet: View {
         return String(localized: "距我 \(DistanceFormatter.string(meters: meters))")
     }
 
-    // MARK: - 2. 剧照（設計稿 2c：全幅・两段式 180 / 三段式 280・右下に等幅の EP 徽章）
+    // MARK: - 2. 剧照（設計稿 2c：全幅・右下に等幅の EP 徽章）
 
-    /// 剧照の高さ。このカードは两段式までなので**档で変わらない**（設計稿 2c 三段式の 280 は使わない）。
+    /// 剧照の高さ。このカードは两段式までなので**档で変わらない**。
     private var mediaHeight: CGFloat { SheetMetrics.mediaHeightMedium }
 
     private func screenshotCard(_ point: ScenePoint) -> some View {
@@ -323,20 +280,18 @@ struct PointCardSheet: View {
             Image(systemName: "photo.badge.plus")
                 .font(SheetFont.titleLarge)
                 .foregroundStyle(Color.anitabiInkTertiary)
-            // 一行で言い切る短さに保つ。長い説明文（旧「このスポットにはまだ〜ありません」）は
-            // 枠の中で折り返して、下の釦を押し出していた。
+            // 一行で言い切る短さに保つ —— 折り返すと下の釦を押し出す。
             Text("还没有截图")
                 .font(SheetFont.rowTitle)
                 .foregroundStyle(Color.anitabiInk)
             Button("补传截图") {
                 safariItem = SafariItem(url: AnitabiWebLink.createPoint(point: point, bangumi: bangumi))
             }
-            // 動作排の「地图」「街景」と同じ寸法（`.action`）。chip 級に落とすと、
-            // すぐ下に並ぶカプセルより一段小さく見える。
+            // すぐ下に並ぶ動作排と同じ寸法。chip 級に落とすと一段小さく見える。
             .buttonStyle(AnitabiCapsuleStyle(kind: .primary, size: .action))
         }
-        // 高さは剧照と**同じ**にする。内容から高さを作ると剧照の無い点だけ枠が潰れ、
-        // 点を切り替えるたびにカードの背丈と下の動作排の位置が跳ねる。
+        // 高さは剧照と**同じ**にする。内容から作ると点を切り替えるたびにカードの背丈と
+        // 動作排の位置が跳ねる。
         .frame(maxWidth: .infinity)
         .frame(height: mediaHeight)
         .anitabiPanel(radius: SheetMetrics.mediaRadius)
@@ -350,23 +305,21 @@ struct PointCardSheet: View {
                 Button {
                     startComparison(point, photoURL: photoURL)
                 } label: {
-                    // 設計稿は `📷 做对比图` と記号を添えているが、記号ぶんの幅が無い
-                    // （横は設計稿より詰まる —— `DesignScale` 参照）。この枠でいちばん大事なのは
-                    // 語そのものなので、記号を落として字に幅を全部渡す。
+                    // 設計稿の `📷` は落とす —— 横は設計稿より詰まるので、記号より語に幅を渡す。
                     Text("做对比图")
                 }
                 .buttonStyle(AnitabiCapsuleStyle(kind: .primary, fullWidth: true, fillsRowHeight: true))
             }
 
             Button {
-                open(AnitabiWebLink.googleMaps(lat: point.lat, lng: point.lng))
+                AnitabiWebLink.openExternally(AnitabiWebLink.googleMaps(lat: point.lat, lng: point.lng))
             } label: {
                 Text("地图")
             }
             .buttonStyle(AnitabiCapsuleStyle(kind: .secondary, fullWidth: true, fillsRowHeight: true))
 
             Button {
-                open(AnitabiWebLink.streetView(lat: point.lat, lng: point.lng))
+                AnitabiWebLink.openExternally(AnitabiWebLink.streetView(lat: point.lat, lng: point.lng))
             } label: {
                 Text("街景")
             }
@@ -466,9 +419,7 @@ struct PointCardSheet: View {
     // MARK: - 6. 「更多」メニュー（動作排の末尾タイル）
 
     /// 貢献フロー（补传截图 / 修正坐标）＋ 在网页版打开 ＋ 拷贝坐标。
-    ///
-    /// 設計稿 2c の三段式には同じ 4 つがカードの末尾にカプセル 3 枚として並んでいたが、
-    /// **この ⋯ と丸ごと重複する**ので原生版では持たない（同じ動作への入口は 1 つ）。
+    /// 設計稿 2c は同じ 4 つをカード末尾にも並べているが、同じ動作への入口は 1 つに絞る。
     private func moreMenu(_ point: ScenePoint) -> some View {
         Menu {
             Button("补传截图", systemImage: "photo.badge.plus") {
@@ -489,17 +440,12 @@ struct PointCardSheet: View {
                 router.toast.show(String(localized: "已拷贝坐标"), symbol: "doc.on.doc")
             }
         } label: {
-            // 隣の「地图」「街景」と**同じ面**（`AnitabiCapsuleFace`）で組む。
-            // 自前で padding と地を書いていた頃は、記号の高さが字の行高より低いぶんだけ
-            // このタイルだけ背が低かった。
+            // 隣の「地图」「街景」と**同じ面**（`AnitabiCapsuleFace`）で組む —— 自前で
+            // padding を書くと、記号の行高が字より低いぶんこのタイルだけ背が低くなる。
             AnitabiCapsuleFace(kind: .secondary, size: .action, fullWidth: true, fillsRowHeight: true) {
                 Image(systemName: "ellipsis")
             }
         }
         .accessibilityLabel("更多")
-    }
-
-    private func open(_ url: URL) {
-        UIApplication.shared.open(url)
     }
 }

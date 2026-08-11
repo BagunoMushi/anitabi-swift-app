@@ -2,38 +2,18 @@
 //  ImageViewer.swift
 //  anitabi
 //
-//  Created by 维安雨轩 on 2025/05/11.
+//  剧照の全屏ビューア（ピンチ／ドラッグ／ダブルタップで原寸に戻す）。
+//  保存は `PhotoLibrarySaver`（`.addOnly` 権限のみ）に任せる。
 //
 
 import SwiftUI
-import Photos
 import UIKit
-
-// 画像保存コールバックを処理するヘルパークラス
-class ImageSaver: NSObject {
-    var onSuccess: () -> Void
-    var onError: (Error) -> Void
-    
-    init(onSuccess: @escaping () -> Void, onError: @escaping (Error) -> Void) {
-        self.onSuccess = onSuccess
-        self.onError = onError
-    }
-    
-    @objc func image(_ image: UIImage, didFinishSavingWithError error: Error?, contextInfo: UnsafeRawPointer) {
-        if let error = error {
-            onError(error)
-        } else {
-            onSuccess()
-        }
-    }
-}
 
 struct ImageViewer: View {
     // MARK: - Properties
-    @Binding var isPresented: Bool
     @Environment(\.dismiss) private var dismiss
     let imageURL: URL?
-    /// タイトル（地標名）。無指定なら従来どおり空のままインライン表示。
+    /// タイトル（地標名）。無指定なら空のままインライン表示。
     var title: String? = nil
 
     // MARK: - States
@@ -42,16 +22,16 @@ struct ImageViewer: View {
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
     @State private var showingSaveConfirmation = false
+    @State private var showPermissionAlert = false
     @State private var saveError: String? = nil
-    @State private var imageSaver: ImageSaver?
     @State private var imageLoadingState: LoadingState = .loading
-    
+
     enum LoadingState {
         case loading
         case success
         case failure
     }
-    
+
     // MARK: - Body
     var body: some View {
         NavigationStack {
@@ -71,6 +51,16 @@ struct ImageViewer: View {
             }
             .alert("已保存", isPresented: $showingSaveConfirmation) {
                 Button("OK", role: .cancel) { }
+            }
+            .alert("无法保存到相册", isPresented: $showPermissionAlert) {
+                Button("前往设置") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("请在「设置」中允许本 App 将照片添加到相册。")
             }
             .alert("出现错误", isPresented: Binding(
                 get: { saveError != nil },
@@ -144,10 +134,7 @@ struct ImageViewer: View {
     // MARK: - Toolbar Items
     private var leadingToolbarItems: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
-            Button(action: {
-                dismiss()
-                isPresented = false
-            }) {
+            Button(action: { dismiss() }) {
                 Image(systemName: "xmark")
                     .foregroundColor(.white)
             }
@@ -211,53 +198,29 @@ struct ImageViewer: View {
         }
     }
     
+    /// CDN から原寸を取り直して保存する（表示中の `AsyncImage` は `UIImage` を渡してくれない）。
     private func saveImageToPhotoLibrary(from url: URL) {
         Task {
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
                 guard let image = UIImage(data: data) else {
-                    await MainActor.run {
-                        saveError = String(localized: "下载图片失败")
-                    }
+                    saveError = String(localized: "下载图片失败")
                     return
                 }
-                
-                await MainActor.run {
-                    // 新しいImageSaverインスタンスを作成
-                    imageSaver = ImageSaver(
-                        onSuccess: {
-                            showingSaveConfirmation = true
-                        },
-                        onError: { error in
-                            saveError = String(localized: "保存到相册失败: \(error.localizedDescription)")
-                        }
-                    )
-                    
-                    // フォトライブラリに保存
-                    UIImageWriteToSavedPhotosAlbum(
-                        image,
-                        imageSaver,
-                        #selector(ImageSaver.image(_:didFinishSavingWithError:contextInfo:)),
-                        nil
-                    )
-                }
+                try await PhotoLibrarySaver.save(image)
+                showingSaveConfirmation = true
+            } catch let error as PhotoLibrarySaver.SaveError where error.isPermissionDenied {
+                showPermissionAlert = true
             } catch {
-                await MainActor.run {
-                    saveError = String(localized: "下载图片失败: \(error.localizedDescription)")
-                }
+                saveError = String(localized: "保存到相册失败: \(error.localizedDescription)")
             }
         }
     }
 }
 
-// MARK: - URL だけで開く入口
-
 extension ImageViewer {
-    /// `.fullScreenCover(item:)` から直接開くための入口（阶段 6）。
-    /// 呈现の生殺与奪は呼び出し側の `item` バインディングが握るので、内側の `isPresented` は
-    /// 定数で潰しておく —— 閉じるのは `@Environment(\.dismiss)` の側だけになる。
-    /// 拡張に置くのは、既存のメンバーワイズ init（`ContentView` が使用中）を消さないため。
+    /// `.fullScreenCover(item:)` から開く入口。閉じるのは `@Environment(\.dismiss)` 側。
     init(url: URL, title: String? = nil) {
-        self.init(isPresented: .constant(true), imageURL: url, title: title)
+        self.init(imageURL: url, title: title)
     }
 }

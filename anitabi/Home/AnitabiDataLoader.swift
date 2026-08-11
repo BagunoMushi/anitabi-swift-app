@@ -2,14 +2,9 @@
 //  AnitabiDataLoader.swift
 //  anitabi
 //
-//  anitabi の静的データ（全量ダウンロード → ローカル保持）を扱う層。
-//  Web 版と同じく `/d/g.json` に全作品と全地標の座標が、`/d/g0-g6.json` に地標の詳細が入る。
-//  つまり **g.json だけで地図は描ける** ので、初回描画は g.json 完了時点で行い、
-//  詳細（名前・スクショ・話数）は g0-g6 が届き次第あとからマージする。
-//
-//  データ書式は位置ベースの配列。フィールド位置は docs/anitabi-map-api.md §3 と
-//  docs/anitabi-web-full-analysis.md §3.2 の解析結果に準拠する。書式が変わっても
-//  クラッシュしないよう、取り出しは全て範囲チェック付きの optional キャストで行う。
+//  静的データ（全量ダウンロード → ローカル保持）を扱う層。`/d/g.json` に全作品と全地標の座標、
+//  `/d/g0-g6.json` に地標の詳細が入る —— **g.json だけで地図は描ける**ので初回描画はそこで行い、
+//  詳細は後からマージする。書式は位置ベースの配列なので、取り出しは全て範囲チェック付き。
 //
 
 import CoreLocation
@@ -37,8 +32,7 @@ actor AnitabiDataLoader {
     static let shared = AnitabiDataLoader()
 
     // `www.anitabi.cn` は 2026-08 時点で応答しない。`ww.` が正常な配信ホスト。
-    private static let originString = "https://ww.anitabi.cn"
-    private let origin = AnitabiDataLoader.originString
+    private static let origin = "https://ww.anitabi.cn"
     private let detailShardCount = 7  // g0 … g6
 
     private lazy var session: URLSession = {
@@ -52,7 +46,6 @@ actor AnitabiDataLoader {
     // MARK: キャッシュバスター
 
     /// Web 版 `HS()` と同一式。約 24 分ごとに変わる。
-    /// （本家は ms を `/1e3/60/24` しており実質 24 分刻み。Swift 側は既に秒なので同値になる。）
     nonisolated static var cacheBuster: String {
         String(Int(Date().timeIntervalSince1970 / 60 / 24) + 6, radix: 36)
     }
@@ -78,10 +71,8 @@ actor AnitabiDataLoader {
         return dataset
     }
 
-    /// ネットワークから取り直す。
-    /// - Parameters:
-    ///   - cachedModified: 手元のデータの `modified`。サーバ側が新しくないなら詳細の再取得を省く。
-    ///   - onList: g.json のパースが終わった時点で 1 度だけ呼ばれる（地図の初回描画用）。
+    /// ネットワークから取り直す。`cachedModified` がサーバ側と同じなら詳細の再取得を省き、
+    /// `onList` は g.json のパースが終わった時点で 1 度だけ呼ぶ（地図の初回描画用）。
     func refresh(
         cachedModified: Double,
         onList: @Sendable (AnitabiDataset) -> Void
@@ -158,7 +149,7 @@ actor AnitabiDataLoader {
     // MARK: ネットワーク
 
     private func fetch(path: String, buster: String) async throws -> Data {
-        guard let url = URL(string: "\(origin)\(path)?d=\(buster)") else {
+        guard let url = URL(string: "\(Self.origin)\(path)?d=\(buster)") else {
             throw AnitabiDataError.malformed(path)
         }
         let (data, response) = try await session.data(from: url)
@@ -186,7 +177,9 @@ actor AnitabiDataLoader {
         }
     }
 
-    private var cacheDirectory: URL? {
+    /// 全量データ・アイコンシート共通の置き場（`BangumiIconSprite` も同じディレクトリを使う）。
+    /// 無ければ作る。作れなければ nil ＝ キャッシュ無しで動く。
+    nonisolated static var cacheDirectory: URL? {
         guard let base = try? FileManager.default.url(
             for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true
         ) else { return nil }
@@ -198,12 +191,12 @@ actor AnitabiDataLoader {
     }
 
     private func cachedData(for slot: CacheSlot) -> Data? {
-        guard let dir = cacheDirectory else { return nil }
+        guard let dir = Self.cacheDirectory else { return nil }
         return try? Data(contentsOf: dir.appendingPathComponent(slot.filename))
     }
 
     private func store(_ data: Data, for slot: CacheSlot) {
-        guard let dir = cacheDirectory else { return }
+        guard let dir = Self.cacheDirectory else { return }
         try? data.write(to: dir.appendingPathComponent(slot.filename), options: .atomic)
     }
 }
@@ -243,13 +236,9 @@ struct PointDetail: Sendable {
 
 extension AnitabiDataLoader {
 
-    /// `/d/g.json` → 作品一覧 + 全地標の座標。
-    ///
-    /// ルートは `[bangumiLiteList, pageSize, modified]`。
-    /// 1 作品のレコード（18 要素）のうち本アプリが使うのは
-    /// `0:id 1:cn 2:en 3:title 4:city 5:color 6:cover 7:score 8:cat 9:lat 10:lng
-    /// 11:zoom 12:points 13:abbr 15:priority`。`14:tags[] 16:icon 17:tAbbr` は未使用
-    /// （`icon` の有無は `bangumi-icons.json` の `ids` 側から判定するため）。
+    /// `/d/g.json` → 作品一覧 + 全地標の座標。ルートは `[bangumiLiteList, pageSize, modified]` で、
+    /// 1 作品は 18 要素：`0:id 1:cn 2:en 3:title 4:city 5:color 6:cover 7:score 8:cat 9:lat
+    /// 10:lng 11:zoom 12:points 13:abbr 14:tags 15:priority 16:icon 17:tAbbr`（14/16/17 は未使用）。
     static func parseBangumiList(_ data: Data) -> AnitabiDataset? {
         guard
             let root = try? JSONSerialization.jsonObject(with: data) as? [Any],
@@ -330,13 +319,9 @@ extension AnitabiDataLoader {
         return result
     }
 
-    /// `/d/g{n}.json` → 地標 ID ごとの詳細。
-    ///
-    /// ルートはセルの配列。1 セルは `[bangumiId, theme, points[], modified]`、
-    /// 1 地標は 15 要素。**ドキュメント（web JS 解析）とは並びが違う**——
-    /// 実データ 5 万件の型統計と実サンプル照合で確定した本当の並びは
-    /// `0:id 1:name 2:folderName 3:isFolder 4:mid 5:uid 6:image 7:fid 8:ep
-    /// 9:timecodeS 10:note(mark) 11:origin 12:originLink 13:cn`。`14:density` は未使用。
+    /// `/d/g{n}.json` → 地標 ID ごとの詳細。1 セルは `[bangumiId, theme, points[], modified]`、
+    /// 1 地標は 15 要素：`0:id 1:name 2:folderName 3:isFolder 4:mid 5:uid 6:image 7:fid 8:ep
+    /// 9:timecodeS 10:note 11:origin 12:originLink 13:cn`（**web の JS 解析とは並びが違う**）。
     static func parsePointDetails(
         _ data: Data,
         into store: inout [String: PointDetail],
@@ -444,9 +429,9 @@ extension AnitabiDataLoader {
             return URL(string: path)
         }
         if path.hasPrefix("/") {
-            return URL(string: originString + path)
+            return URL(string: origin + path)
         }
-        return URL(string: originString + "/" + path)
+        return URL(string: origin + "/" + path)
     }
 }
 

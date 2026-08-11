@@ -16,9 +16,6 @@ final class LocationProvider: NSObject {
     private(set) var location: CLLocation?
     private(set) var authorizationStatus: CLAuthorizationStatus
 
-    /// 端末の向き（度）。ヘディングが取れない機種・状況では nil。
-    private(set) var heading: CLLocationDirection?
-
     private let manager = CLLocationManager()
 
     /// 「附近」の再計算は移動量で間引く。連続更新のたびに 5 万点を走査しない。
@@ -55,14 +52,6 @@ final class LocationProvider: NSObject {
     func start() {
         guard isAuthorized else { return }
         manager.startUpdatingLocation()
-        if CLLocationManager.headingAvailable() {
-            manager.startUpdatingHeading()
-        }
-    }
-
-    func stop() {
-        manager.stopUpdatingLocation()
-        manager.stopUpdatingHeading()
     }
 
     /// 前回の再計算地点から十分動いたか。
@@ -89,13 +78,6 @@ extension LocationProvider: CLLocationManagerDelegate {
         guard let latest = locations.last else { return }
         Task { @MainActor in
             self.location = latest
-        }
-    }
-
-    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
-        let value = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
-        Task { @MainActor in
-            self.heading = value
         }
     }
 

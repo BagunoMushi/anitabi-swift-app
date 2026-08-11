@@ -192,26 +192,39 @@ final class AnitabiStore {
 
     // MARK: - 附近
 
-    /// 現在地から近い順に地標を並べる。5 万点の線形走査だがバックグラウンドで行う。
+    /// 現在地から近い順に地標を並べる。50km 以遠は「附近」ではないので落とす。
     func recomputeNearby(around location: CLLocation, limit: Int = 30) async {
-        let snapshot = points
-        let coordinate = location.coordinate
+        nearby = await Self.nearestPoints(
+            to: location.coordinate, in: points, limit: limit, maxDistance: 50_000
+        )
+    }
 
-        let result: [NearbyPoint] = await Task.detached(priority: .userInitiated) {
-            // 等距長方形近似。ソート用の相対比較なので測地線精度は要らない。
-            let latRad = coordinate.latitude * .pi / 180
+    /// 附近に何も無いときに提示する「いちばん近い巡礼地」。
+    var nearestBeyondNeighborhood: NearbyPoint? {
+        nearby.first
+    }
+
+    /// 任意の座標から近い順に地標を返す。等距長方形近似 —— 並べ替えのための相対比較なので
+    /// 測地線精度は要らない。5 万点の線形走査なので必ずバックグラウンドで回す。
+    /// （現在地からの「附近」と、落針カードの「最近の巡礼点」が共有する。）
+    static func nearestPoints(
+        to coordinate: CLLocationCoordinate2D,
+        in points: [ScenePoint],
+        limit: Int,
+        maxDistance: CLLocationDistance? = nil
+    ) async -> [NearbyPoint] {
+        await Task.detached(priority: .userInitiated) {
             let metersPerLat = 111_320.0
-            let metersPerLng = 111_320.0 * cos(latRad)
+            let metersPerLng = 111_320.0 * cos(coordinate.latitude * .pi / 180)
+            let squaredLimit = maxDistance.map { $0 * $0 }
 
             var scored: [(ScenePoint, Double)] = []
-            scored.reserveCapacity(min(snapshot.count, 4096))
-
-            for point in snapshot {
+            scored.reserveCapacity(min(points.count, 4096))
+            for point in points {
                 let dy = (point.lat - coordinate.latitude) * metersPerLat
                 let dx = (point.lng - coordinate.longitude) * metersPerLng
                 let squared = dx * dx + dy * dy
-                // 50km 以遠は「附近」ではない
-                guard squared < 50_000 * 50_000 else { continue }
+                if let squaredLimit, squared >= squaredLimit { continue }
                 scored.append((point, squared))
             }
             scored.sort { $0.1 < $1.1 }
@@ -219,13 +232,6 @@ final class AnitabiStore {
                 NearbyPoint(point: $0.0, distance: $0.1.squareRoot())
             }
         }.value
-
-        nearby = result
-    }
-
-    /// 附近に何も無いときに提示する「いちばん近い巡礼地」。
-    var nearestBeyondNeighborhood: NearbyPoint? {
-        nearby.first
     }
 
     // MARK: - 検索
@@ -299,9 +305,8 @@ final class AnitabiStore {
             }
     }
 
-    /// 都市名の一致（HomeSheet 検索用、阶段 4 で追加）。候補は最大 12 件しかないので上限は設けない。
-    /// `SearchResult` 本体に `.city` を足すと、既存（削除待ち）の `HomeSheetView` 側の
-    /// 網羅 switch が壊れるため、こちらは独立した便宜クエリにしてある。
+    /// 都市名の一致。候補は最大 12 件しかないので上限は設けない。`SearchResult` に `.city` を
+    /// 足さず独立したクエリにしてあるのは、地標／作品と混排しないため（設計稿 1b）。
     func matchingCities(_ query: String) -> [CityTile] {
         guard let needle = query.nilIfBlank?.lowercased() else { return [] }
         return cities.filter { $0.name.lowercased().contains(needle) }
@@ -449,12 +454,9 @@ final class AnitabiStore {
         }
     }
 
-    /// folder モード：
-    /// - `isFolder` の点は自身がグループになる（その点自身を先頭行として残す）
-    /// - `fid` を持つ点は対応する `isFolder` 点のグループへ
-    /// - `folderName` 文字列を持つ点（旧データ）はその名前でグループへ
-    /// - それ以外は作品名を組名にしたデフォルトグループへ
-    /// - 結果が空のグループは作らない（`isFolder` 自身のグループは常に非空）
+    /// folder モード：`isFolder` の点は自身がグループになり（その点自身が先頭行）、`fid` を持つ点は
+    /// そのグループへ、`folderName` 文字列だけの点（旧データ）は名前でグループへ、残りは作品名の
+    /// デフォルトグループへ。空のグループは作らない。
     private func groupedByFolder(_ pts: [ScenePoint], bangumiID: Int) -> [PointGroup] {
         var folderOrder: [String] = []
         var membersByFolderID: [String: [ScenePoint]] = [:]
@@ -501,8 +503,8 @@ final class AnitabiStore {
         return groups
     }
 
-    /// episode モード：純数字組は数値昇順で先頭、非数字組は `localizedCompare` でその後、
-    /// `ep` の無い点は「未分组」として最後にまとめる（本段階は未ローカライズの固定文言）。
+    /// episode モード：純数字組を数値昇順で先頭に、非数字組を `localizedCompare` でその後に、
+    /// `ep` の無い点は「未分组」として最後にまとめる。
     private func groupedByEpisode(_ pts: [ScenePoint]) -> [PointGroup] {
         var numericOrder: [String] = []
         var numericMembers: [String: [ScenePoint]] = [:]
@@ -556,7 +558,7 @@ final class AnitabiStore {
     func bangumi(id: Int) -> BangumiLite? { bangumiByID[id] }
 
     func color(forBangumi id: Int) -> Color {
-        bangumiByID[id]?.themeColor ?? Color(hex: 0x8A8A6F)
+        bangumiByID[id]?.themeColor ?? .anitabiNeutralTheme
     }
 
     func name(forBangumi id: Int) -> String {
@@ -564,7 +566,6 @@ final class AnitabiStore {
     }
 
     /// 作品の最終更新（g0-g6 セルの modified、ミリ秒エポック）。未取得の作品は nil。
-    /// WorkCardSheet の「更新于」表示用（阶段 5 で追加）。
     func modified(forBangumi id: Int) -> Date? {
         guard let millis = bangumiModified[id], millis > 0 else { return nil }
         return Date(timeIntervalSince1970: millis / 1000)
@@ -575,16 +576,6 @@ final class AnitabiStore {
     /// User ID → ニックネーム（`/d/users.csv`）。未取得・該当なしは nil。
     func userNickname(_ uid: Int) -> String? {
         usersByID[uid]
-    }
-
-    /// 地標に添える出典表示。優先度は `origin` の文言 → `uid` のニックネーム（`@名前`）→ nil。
-    /// `mid`（Google マイマップ由来）の「地図インポート」表記は UI 層の判断に委ねる。
-    func contributorLabel(for point: ScenePoint) -> String? {
-        if let origin = point.origin?.nilIfBlank { return origin }
-        if let uid = point.uid, let nickname = usersByID[uid]?.nilIfBlank {
-            return "@\(nickname)"
-        }
-        return nil
     }
 
     /// 作品全体の投稿者サマリー：uid の出現回数上位 2 名のニックネームと、重複排除した投稿者総数。

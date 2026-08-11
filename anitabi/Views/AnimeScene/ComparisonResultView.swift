@@ -2,13 +2,8 @@
 //  ComparisonResultView.swift
 //  anitabi
 //
-//  Created by 维安雨轩 on 2025/05/13.
-//
-//  対比撮影の成果物（上下対比カード / 合体成片のどちらも同じこの 1 画面で受ける）。
-//  レイアウトと 2 種類の産物の扱いは従来のまま。保存と共有だけを現代化してある：
-//  - `PHPhotoLibrary` の `.addOnly` 権限 + async/await（`PhotoLibrarySaver`）
-//  - 「保存された感」を出すための人為的な 1 秒待ちは廃止（実際に書き終わった時点で知らせる）
-//  - `UIActivityViewController` の representable ラッパーではなく `ShareLink`
+//  対比撮影の成果物（上下対比カード／合体成片のどちらも同じこの 1 画面で受ける）。
+//  保存は `PhotoLibrarySaver`（`.addOnly` 権限のみ）、共有は `ShareLink`。
 //
 
 import SwiftUI
@@ -32,8 +27,7 @@ struct ComparisonResultView: View {
         static let iconSize: CGFloat = 24  // 调整为与SceneComparisonView一致
     }
 
-    /// `ShareLink` に渡す共有アイテム。`UIImage` ではなく SwiftUI の `Image`
-    /// （こちらが `Transferable`。プレビューにも同じものを使う）。
+    /// `ShareLink` に渡す共有アイテム（`Transferable` なのは `UIImage` ではなく `Image` の側）。
     private var shareImage: Image { Image(uiImage: comparisonImage) }
 
     var body: some View {
@@ -75,8 +69,7 @@ struct ComparisonResultView: View {
                 Text(saveError ?? "")
             }
         }
-        // 画面は常に黒地。明るい配色のままだと**タイトルが黒地に黒**で読めない
-        // （`ImageViewer` が同じ理由で既にこうしている）。
+        // 画面は常に黒地なので、明るい配色のままだとタイトルが黒地に黒で読めない。
         .preferredColorScheme(.dark)
     }
 

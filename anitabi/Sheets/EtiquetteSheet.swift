@@ -2,12 +2,9 @@
 //  EtiquetteSheet.swift
 //  anitabi
 //
-//  巡礼マナーの注意（`ScenePoint.needsEtiquetteWarning` が立つ地標＝学校・図書館など）。
-//  設計稿 1g をそのまま写す —— 34pt の琥珀の丸い `!` ＋ 標題、白い薄膜に入れた本文、
-//  そして「了解更多 ↗」（次）と「知道了」（主）のカプセル 2 枚。
-//
-//  「了解更多」の SFSafariViewController は**この sheet 自身**から出す。親（地標カード）へ
-//  投げ返して閉じてから開く形にすると、同フレームの dismiss + present で後の呈现が落ちる。
+//  巡礼マナーの注意（`ScenePoint.needsEtiquetteWarning` が立つ地標＝学校・図書館など）。設計稿 1g。
+//  「了解更多」の SFSafariViewController は**この sheet 自身**から出す —— 親へ投げ返して閉じてから
+//  開く形にすると、同フレームの dismiss + present で後の呈现が落ちる。
 //
 
 import SwiftUI

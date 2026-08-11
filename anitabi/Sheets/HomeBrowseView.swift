@@ -2,12 +2,9 @@
 //  HomeBrowseView.swift
 //  anitabi
 //
-//  HomeSheet の「通常ブラウズ」中身。設計稿 2a の原則そのまま —— **三档は同じ 1 列を
-//  裁切する高さの違いでしかない**（拖动は「多露」だけで内容を入れ替えない）。なので档で
-//  出し分けはせず、全セクションを同じ ScrollView に並べる。
-//
-//  列の順（設計稿 1a / 2a）：
-//    作品筛选 chips → 最近查看（条件行）→ 附近的巡礼点 → 作品浏览 → 热门城市 → 版権脚注
+//  HomeSheet の「通常ブラウズ」中身。**三档は同じ 1 列を裁切する高さの違いでしかない**ので
+//  档で出し分けはせず、全セクションを同じ ScrollView に並べる。
+//  列の順（設計稿 1a / 2a）：最近查看 → 附近的巡礼点 → 作品浏览 → 热门城市 → 版権脚注。
 //
 
 import CoreLocation
@@ -15,8 +12,8 @@ import MapKit
 import SwiftUI
 import UIKit
 
-/// 附近の再計算をいつ回すかのキー。`Date?` と `DataLoadPhase` の両方が揃って初めて
-/// 「意味のある」再計算ができる（前者だけでは `points` が空のままのことがある）。
+/// 附近の再計算をいつ回すかのキー。位置と読み込み段階の**両方**を見る —— GPS の初回 fix は
+/// データ取得の完走より先に届くことがあり、その瞬間の `points` はまだ空。
 private struct NearbyRecomputeTrigger: Equatable {
     var timestamp: Date?
     var phase: DataLoadPhase
@@ -31,7 +28,6 @@ struct HomeBrowseView: View {
     var onFocusCity: (CityTile) -> Void
 
     @AppStorage("home.browseTab") private var browseTab: WorkBrowseTab = .recentlyUpdated
-    /// sheet の中身は底部安全区を無効にしてあるので、列の末尾だけ自分で足し戻す。
     @Environment(\.sheetBottomInset) private var sheetBottomInset
 
     /// 「附近」= 5km 圏内。`store.nearby` は 50km まで候補を持つので、ここで絞る。
@@ -42,8 +38,7 @@ struct HomeBrowseView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
-                // 検索行と作品 chips 行は `HomeSheet` が ScrollView の外に固定で持っている
-                // （設計稿 2a 一段式＝その 2 行ぶんの高さ）。ここは列の 3 行目から始まる。
+                // 検索行と作品 chips 行は `HomeSheet` が ScrollView の外に固定で持っている。
                 continueWatchingRow
                 nearbySection
                 workBrowseSection
@@ -52,15 +47,11 @@ struct HomeBrowseView: View {
             }
             .scenePadding(.horizontal)
             // 上の余白は検索行が持っているので、ここでは足さない。
-            .padding(.bottom, SheetMetrics.scrollBottomPadding + sheetBottomInset)
+            .sheetScrollBottomPadding(sheetBottomInset)
         }
-        // 位置と読み込み段階の両方をキーにする —— GPS の初回 fix は `store.bootstrap()` の
-        // ネットワーク完走より先に届くことがあり、その瞬間の `points` はまだ空。位置だけをキーに
-        // すると、シミュレータの静止 fix では二度と再計算が起きず「附近」が永遠に 0 件のまま固まる
-        // （実機でも、屋内で動かない間は同じ理屈で起こり得る）。
         .task(id: NearbyRecomputeTrigger(timestamp: locationProvider.location?.timestamp, phase: store.phase)) {
             guard let location = locationProvider.location, !store.isEmpty else { return }
-            // データが読み終わった直後の 1 回だけは、移動していなくても間引かずに撮り直す
+            // 読み込み完走直後の 1 回だけは、移動していなくても間引かずに撮り直す
             // （それより前の「点が空だった」計算結果を上書きするため）。
             let justFinishedLoading = store.phase == .complete
             guard justFinishedLoading || locationProvider.shouldRecomputeNearby(for: location) else { return }
@@ -71,8 +62,8 @@ struct HomeBrowseView: View {
 
     // MARK: 1. 最近查看（条件行・設計稿 1a）
 
-    /// 設計稿の 1 行カード：`30×40` 封面 ＋ 小見出し「最近查看」＋ 作品名 ＋ 深緑の「继续」。
-    /// 一度も作品を開いていない間はこの行ごと消える（設計稿 2a の首次使用変体）。
+    /// 設計稿の 1 行カード：封面 ＋「最近查看」＋ 作品名 ＋ 深緑の「继续」。
+    /// 一度も作品を開いていない間はこの行ごと消える。
     @ViewBuilder
     private var continueWatchingRow: some View {
         if let bangumi = store.lastVisitedBangumi {
@@ -156,7 +147,7 @@ struct HomeBrowseView: View {
         // 定位済み・50km 圏内も 0 件のときは何も出さない（巡礼データが存在しない地域）。
     }
 
-    /// 設計稿 1a の状態変体「未授权定位时显示」：34pt の丸い定位記号 ＋ 2 行 ＋ 深緑の「去开启」。
+    /// 設計稿 1a の状態変体「未授权定位时显示」：丸い定位記号 ＋ 文言 ＋ 深緑の「去开启」。
     private var locationGuidanceCard: some View {
         HStack(spacing: SheetMetrics.thumbnailGap) {
             Image(systemName: "location.slash")
@@ -212,11 +203,8 @@ struct HomeBrowseView: View {
 
 // MARK: - 热门城市（検索の空入力時にも使い回す）
 
-/// 設計稿 1a：3 列のタイル（角丸 14・`padding:10px 12px`）に都市名 14/700 と点数 11。
-/// 剧照は敷かない（硬約束）——地は白い薄膜だけ。
-///
-/// 見出しの右端には何も置かない —— 設計稿 1a の「🎲 随机作品」は地図の左下（Apple 署名の上）へ
-/// 独立した浮控として出した（`MapRandomWorkButton`）。
+/// 設計稿 1a：3 列のタイルに都市名と点数。剧照は敷かない（硬約束）——地は白い薄膜だけ。
+/// 設計稿の「🎲 随机作品」は見出しには置かず、地図左下の浮控にした（`MapRandomWorkButton`）。
 struct CityGridSection: View {
     let cities: [CityTile]
     var onSelect: (CityTile) -> Void
@@ -275,7 +263,7 @@ struct WorkBrowseSection: View {
                         SheetHairline(leadingInset: SheetMetrics.coverSize.width + SheetMetrics.thumbnailGap)
                     }
                     Button { onSelectWork(bangumi.id) } label: {
-                        BrowseWorkRow(store: store, bangumi: bangumi)
+                        WorkBrowseRow(store: store, bangumi: bangumi)
                     }
                     .buttonStyle(.plain)
                 }
@@ -284,19 +272,28 @@ struct WorkBrowseSection: View {
     }
 }
 
-private struct BrowseWorkRow: View {
+/// 作品行（作品浏览・検索結果の両方が使う）。設計稿は `38×52` 封面 ＋ 作品名 ＋ 副題 ＋ `›`。
+struct WorkBrowseRow: View {
     let store: AnitabiStore
     let bangumi: BangumiLite
+    var coverSize: CGSize = SheetMetrics.coverSize
+
+    /// `{分類} · {地域} · {N 个点位}`。
+    static func subtitle(_ bangumi: BangumiLite, store: AnitabiStore) -> String {
+        let count = store.pointsByBangumi[bangumi.id]?.count ?? bangumi.points.count
+        let parts: [String?] = [bangumi.cat?.nilIfBlank, bangumi.city?.nilIfBlank, String(localized: "\(count) 个点位")]
+        return parts.compactMap { $0 }.joined(separator: " · ")
+    }
 
     var body: some View {
         HStack(spacing: SheetMetrics.thumbnailGap) {
-            CoverThumbnail(bangumi: bangumi)
+            CoverThumbnail(bangumi: bangumi, size: coverSize)
             VStack(alignment: .leading, spacing: SheetMetrics.rowTitleGap) {
                 Text(bangumi.displayName)
                     .font(SheetFont.rowTitle)
                     .foregroundStyle(Color.anitabiInk)
                     .lineLimit(2)
-                Text(subtitle)
+                Text(Self.subtitle(bangumi, store: store))
                     .font(SheetFont.meta)
                     .foregroundStyle(Color.anitabiInkSecondary)
                     .lineLimit(1)
@@ -307,44 +304,51 @@ private struct BrowseWorkRow: View {
         .padding(.vertical, SheetMetrics.rowVerticalPadding)
         .contentShape(.rect)
     }
-
-    private var subtitle: String {
-        let count = store.pointsByBangumi[bangumi.id]?.count ?? bangumi.points.count
-        let parts: [String?] = [bangumi.cat?.nilIfBlank, bangumi.city?.nilIfBlank, String(localized: "\(count) 个点位")]
-        return parts.compactMap { $0 }.joined(separator: " · ")
-    }
 }
 
-// MARK: - 附近行（落針カードの「最近的巡礼点」とも共有）
+// MARK: - 地標行（附近・落針の「最近的巡礼点」・検索結果が共有）
 
-/// 設計稿 1a：`54×40` の剧照 ＋ 点名 14/700 ＋ 主題色点と作品名 11.5 ＋ 右端に距離 12/700。
+/// 設計稿 1a：`54×40` の剧照 ＋ 点名 ＋ 主題色点と作品名 ＋ 右端に距離（未測位なら省く）。
 struct NearbyPointRow: View {
     let store: AnitabiStore
-    let item: NearbyPoint
+    let point: ScenePoint
+    var distance: CLLocationDistance?
+
+    init(store: AnitabiStore, point: ScenePoint, distance: CLLocationDistance? = nil) {
+        self.store = store
+        self.point = point
+        self.distance = distance
+    }
+
+    init(store: AnitabiStore, item: NearbyPoint) {
+        self.init(store: store, point: item.point, distance: item.distance)
+    }
 
     /// 分隔線を文字列まで寄せる量。
     static var textInset: CGFloat { SheetMetrics.sceneThumbnailSize.width + SheetMetrics.thumbnailGap }
 
     var body: some View {
         HStack(spacing: SheetMetrics.thumbnailGap) {
-            SceneThumbnail(url: item.point.thumbnailURL)
+            SceneThumbnail(url: point.thumbnailURL)
             VStack(alignment: .leading, spacing: SheetMetrics.rowTitleGap) {
-                Text(item.point.displayName.nilIfBlank ?? String(localized: "巡礼点"))
+                Text(point.displayName.nilIfBlank ?? String(localized: "巡礼点"))
                     .font(SheetFont.rowTitle)
                     .foregroundStyle(Color.anitabiInk)
                     .lineLimit(1)
                 HStack(spacing: SheetMetrics.scaled(5)) {
-                    ThemeDot(color: store.color(forBangumi: item.point.bangumiID), size: SheetMetrics.dotSize)
-                    Text(store.name(forBangumi: item.point.bangumiID))
+                    ThemeDot(color: store.color(forBangumi: point.bangumiID), size: SheetMetrics.dotSize)
+                    Text(store.name(forBangumi: point.bangumiID))
                         .lineLimit(1)
                 }
                 .font(SheetFont.meta)
                 .foregroundStyle(Color.anitabiInkSecondary)
             }
             Spacer(minLength: 0)
-            Text(DistanceFormatter.string(meters: item.distance))
-                .font(SheetFont.distance)
-                .foregroundStyle(Color.anitabiInkSecondary)
+            if let distance {
+                Text(DistanceFormatter.string(meters: distance))
+                    .font(SheetFont.distance)
+                    .foregroundStyle(Color.anitabiInkSecondary)
+            }
         }
         .padding(.vertical, SheetMetrics.rowVerticalPadding)
         .contentShape(.rect)

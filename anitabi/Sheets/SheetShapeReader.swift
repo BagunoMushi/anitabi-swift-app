@@ -2,16 +2,9 @@
 //  SheetShapeReader.swift
 //  anitabi
 //
-//  sheet の**実際に描かれているカード**の枠を UIKit 側から実測して SwiftUI へ返す。
-//
-//  なぜ要るか：iOS 26 の浮き sheet（特に小さい档の「迷你条」）は、SwiftUI の中身の枠と
-//  可視カードの枠が一致しない。中身は枠いっぱいに配られるのに、カードはその内側に描かれる。
-//  この差は系统の API では取れない（`safeAreaInsets` は上下とも 0 を返す。実測）。
-//  定数で埋めると機種・OS 更新で必ずずれるので、UIKit の view 階層から
-//  `presentationController.presentedView` を辿って**毎回実測**する。
-//
-//  やっていることは SwiftUI-Introspect / SheeKit と同じ「呈现側の UIKit を覗く」だけで、
-//  private API には触れていない。
+//  sheet の**実際に描かれているカード**の枠を UIKit 側から実測して SwiftUI へ返す。iOS 26 の
+//  浮き sheet は中身の枠と可視カードの枠が一致せず、その差は系统の API では取れないので、
+//  `presentationController.presentedView` を辿って毎回実測する（private API なし）。
 //
 
 import SwiftUI

@@ -2,15 +2,9 @@
 //  RemoteImage.swift
 //  anitabi
 //
-//  下拉カードの剧照/封面を「滚动で可視域に入った時だけ」読む遅延画像。
-//
-//  `AsyncImage` は**視図が作られた瞬間**に取りに行く。カード内の一覧は
-//  `SheetListCard` の中で普通の `VStack` に積んである（角丸の器を 1 枚に保つため）ので、
-//  「全部展开」の作品を開くと画面外の数百枚が一斉に飛ぶ。ここでは
-//  `onScrollVisibilityChange` で可視状態を見て、見えている行だけ読む。
-//
-//  復号済みの `UIImage` は `RemoteImageCache` が持つので、戻って来た行は 1 フレームも
-//  placeholder を見せずに出る。ディスクは `URLCache.shared`（`anitabiApp` で 128MB）。
+//  下拉カードの剧照／封面を「滚动で可視域に入った時だけ」読む遅延画像。`AsyncImage` は**視図が
+//  作られた瞬間**に取りに行くので、点数の多い作品を開くと画面外の数百枚が一斉に飛ぶ。
+//  復号済みの `UIImage` は `RemoteImageCache` が持つので、戻って来た行はちらつかない。
 //
 
 import SwiftUI
@@ -23,9 +17,9 @@ import UIKit
 final class RemoteImageCache {
     static let shared = RemoteImageCache()
 
-    /// `NSCache` 自体はスレッドセーフなので、同期読みだけ `nonisolated` で開けておく
-    ///（視図の `init` から引いて初回描画の placeholder を飛ばすため）。
-    private nonisolated let memory: NSCache<NSURL, UIImage> = {
+    /// `NSCache` 自体はスレッドセーフなので、同期読みだけ開けておく（視図の `init` から引いて
+    /// 初回描画の placeholder を飛ばすため）。`Sendable` ではないので `unsafe` を明示する。
+    private nonisolated(unsafe) let memory: NSCache<NSURL, UIImage> = {
         let cache = NSCache<NSURL, UIImage>()
         cache.totalCostLimit = 48 * 1024 * 1024
         return cache
@@ -44,8 +38,8 @@ final class RemoteImageCache {
         if let hit = cached(url) { return hit }
         if let running = inflight[url] { return await running.value }
 
-        // 呼び出し側の視図が消えても走り切らせる（剧照は最大 512×288 と小さいので、
-        // 途中で捨てて次に取り直すより貯めた方が安い）。
+        // 呼び出し側の視図が消えても走り切らせる —— 剧照は小さいので、途中で捨てて
+        // 次に取り直すより貯めた方が安い。
         let task = Task { [self] in
             let image = await Self.download(url)
             if let image {
@@ -118,8 +112,8 @@ struct RemoteImage<Content: View>: View {
     }
 
     var body: some View {
-        // 下地を `Color.clear` にして常に器いっぱいの矩形を持たせる。中身が空（＝読み込み前）の
-        // 間も面積が要る —— 面積 0 の視図は「可視」と判定されず、永遠に読み始めない。
+        // 下地を `Color.clear` にして常に器いっぱいの矩形を持たせる —— 面積 0 の視図は
+        // 「可視」と判定されず、永遠に読み始めない。
         Color.clear
             .overlay { content(phase) }
             .modifier(ScrollVisibilityReporter { isVisible = $0 })
@@ -174,8 +168,8 @@ struct RemoteImage<Content: View>: View {
     }
 }
 
-/// 可視状態の報告。`onScrollVisibilityChange` は iOS 18 から。
-/// それ以前は判定手段が無いので、従来どおり「出た時点で読む」に落とす。
+/// 可視状態の報告。`onScrollVisibilityChange` は iOS 18 からなので、それ以前は判定手段が無く
+/// 「出た時点で読む」に落とす。
 private struct ScrollVisibilityReporter: ViewModifier {
     let action: (Bool) -> Void
 

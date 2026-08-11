@@ -2,17 +2,9 @@
 //  WorkCardSheet.swift
 //  anitabi
 //
-//  作品カード。設計稿 1c（完整版）と 2b（三段式）をそのまま写す。
-//
-//  設計稿 2b で唯一「档で内容が変わる」のがこのカードの頭部：
-//  - 一段式（最小档）= **身份条**。標題 ＋ 副題 ＋「全部点位」＋ ✕ の 1 行だけにして、
-//    残りは地図（点位の散らばりを見る）に譲る。
-//  - 两段式／三段式 = 標題ブロック ＋ 共有 ◯ ＋ ✕ に戻る。
-//
-//  設計稿 2b は情報カードの下にも全幅の「查看全部点位」を置いていたが、原生版では持たない：
-//  中/大档では地図がカードの下に隠れているので押しても何も見えず、しかも一覧から点へ入って
-//  ✕ で戻ってきた時点で RootView が全点の画へ寄せ直す（`refitWork`）。残すのは
-//  **地図が見えている一段式の身份条だけ** —— そこでは自分でパンした後に戻る手が要る。
+//  作品カード（設計稿 1c / 2b）。档で変わるのは頭部だけ —— 一段式は**身份条**（標題＋副題＋
+//  「全部点位」＋✕ の 1 行）にして残りを地図に譲り、两段式以上は標題ブロックに戻る。
+//  「全部点位」が一段式だけなのは、中/大档では地図が隠れていて押しても何も見えないから。
 //
 
 import SwiftUI
@@ -33,11 +25,10 @@ struct WorkCardSheet: View {
 
     /// 全作品で共有する分组方式。作品を跨いでも前回の選択を覚えておく（web 版のタブ記憶と同じ）。
     @AppStorage("workGroupMode") private var groupMode: WorkGroupingMode = .folder
-    /// sheet の中身は底部安全区を無効にしてあるので、列の末尾だけ自分で足し戻す。
     @Environment(\.sheetBottomInset) private var sheetBottomInset
 
     @State private var collapsedGroupIDs: Set<String> = []
-    /// 外链胶囊は router を介さず、このカード自身の档で開閉する。
+    /// 外链胶囊は router を介さず、このカード自身で開閉する。
     @State private var safariItem: SafariItem?
 
     private var bangumi: BangumiLite? { store.bangumi(id: workID) }
@@ -76,15 +67,10 @@ struct WorkCardSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                    // 最小档の高さは**一段式の身份条の実高**でなければならない。中/大档では
-                    // 頭部が別の形（標題 18px ＋ 共有 ◯）に変わるので、そのまま測ると
-                    // 最小档が身份条より高くなってしまう。そこで一段式の複製を高さ 0 の枠に
-                    // 隠して置き、常にそちらの実高を報せる。
-                    .overlay(alignment: .top) { compactHeaderProbe }
+                    // 最小档は**一段式の身份条の実高**。中/大档では頭部が別の形に変わるので、
+                    // 一段式の複製を隠して置き、常にそちらを測る。
+                    .overlay(alignment: .top) { compactHeader.compactHeightProbe(.work) }
 
-                // 一段式では身份条より下を**描かない**。sheet の中身は底部安全区の下にも
-                // 描かれるので、高さを身份条ぴったりにしても次の節がホームインジケータ帯に覗く。
-                // 判定は生の sheet 高さ由来（RootView）なので、拖动に即座に追従する。
                 LazyVStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
                     infoCard
                     if showsGroupingControls {
@@ -102,16 +88,10 @@ struct WorkCardSheet: View {
                     externalLinksRow
                     contributorRow
                 }
-                // 一段式では中身を**レイアウトからも外す**（高さ 0 に畳む）。opacity だけで
-                // 隠していた版は、見えないまま場所を要求し続ける —— sheet の高さが足りないぶんを
-                // SwiftUI が身份条の余白から削るので、カードごとに 3〜10pt 潰れて
-                // 「首页の検索だけ上、他の 2 枚は下」という食い違いになっていた（実測）。
-                .frame(height: isMinimized ? 0 : nil, alignment: .top)
-                .clipped()
-                .allowsHitTesting(!isMinimized)
+                .collapsedInCompactStage(isMinimized ? .compact : .medium)
             }
             .scenePadding(.horizontal)
-            .padding(.bottom, SheetMetrics.scrollBottomPadding + sheetBottomInset)
+            .sheetScrollBottomPadding(sheetBottomInset)
         }
         .onAppear { resetCollapseState() }
         .onChange(of: groupMode) { _, _ in resetCollapseState() }
@@ -121,7 +101,7 @@ struct WorkCardSheet: View {
     // MARK: 1. 頭部（設計稿 2b）
 
     /// 一段式の身份条は上下の余白まで自前で持つ（`compactBarRow`）。中/大档の頭部だけが
-    /// カード共通の上余白（抓手の下 ＋ 8px）と、その下の節との間隔を足す。
+    /// カード共通の上余白と、その下の節との間隔を足す。
     @ViewBuilder
     private var header: some View {
         if isMinimized {
@@ -137,7 +117,7 @@ struct WorkCardSheet: View {
     private var compactHeader: some View {
         HStack(alignment: .center, spacing: SheetMetrics.circleButtonGap) {
             VStack(alignment: .leading, spacing: SheetMetrics.rowTitleGap) {
-                // 一段式は 1 行しか無いので、長い作品名は `…` に切らず横に流す（`MarqueeText`）。
+                // 1 行しか無いので、長い作品名は `…` に切らず横に流す。
                 MarqueeText(text: store.name(forBangumi: workID), font: SheetFont.titleCompactWork)
                 subtitleRow(includesScreenshots: false)
             }
@@ -151,16 +131,6 @@ struct WorkCardSheet: View {
         }
         // 迷你条の行高は 4 枚のカードで共通（`compactBarRow`）。
         .compactBarRow()
-    }
-
-    /// 一段式の実高だけを測るための不可視の複製（レイアウトには効かせない）。
-    private var compactHeaderProbe: some View {
-        compactHeader
-            .environment(\.isMarqueeEnabled, false)
-            .fixedSize(horizontal: false, vertical: true)
-            .compactContentHeight(.work)
-            .hidden()
-            .frame(height: 0, alignment: .top)
     }
 
     /// 設計稿 2b 两段式／三段式：左寄せの標題ブロック（18px/900）＋ 共有 ◯ ＋ ✕。
@@ -209,10 +179,7 @@ struct WorkCardSheet: View {
         SheetGroupCard {
             HStack(alignment: .center, spacing: SheetMetrics.thumbnailGap) {
                 RoundedRectangle(cornerRadius: SheetMetrics.infoCoverRadius, style: .continuous)
-                    .fill(
-                        bangumi?.themeGradient
-                            ?? LinearGradient(colors: [themeColor], startPoint: .top, endPoint: .bottom)
-                    )
+                    .fill(themeColor.anitabiThemeGradient)
                     .overlay {
                         if let url = headerCoverURL {
                             RemoteImage(url: url) { phase in

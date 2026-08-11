@@ -3,42 +3,16 @@
 //  anitabi
 //
 //  作品テーマカラー（`#rrggbb`・サーバ由来で色域は不可控）を地図標注で安全に使うための道具。
-//
-//  地図レイヤーは UIKit（CALayer / MKAnnotationView）なので、色判定の主実装は SwiftUI の
-//  `Color` ではなく `UIColor` 側に置く。ただし `AnitabiModels.themeColor`（データ層、SwiftUI）
-//  が `Color(cssHex:)`/`Color(hex:)` を必要とするため、`Home/DesignTokens.swift` 削除に伴い
-//  その 2 つの initializer もここへ合流させた（阶段 9）。
+//  色判定の主実装は地図レイヤー（UIKit）に合わせて `UIColor` 側に置き、SwiftUI 側は委譲する。
 //
 
 import SwiftUI
 import UIKit
 
-extension Color {
-    init(hex: UInt32, alpha: Double = 1) {
-        self.init(
-            .sRGB,
-            red: Double((hex >> 16) & 0xFF) / 255,
-            green: Double((hex >> 8) & 0xFF) / 255,
-            blue: Double(hex & 0xFF) / 255,
-            opacity: alpha
-        )
-    }
-
-    /// `#rrggbb` / `rrggbb` 字符串（作品主题色来自服务端，格式不完全可控）。
-    init?(cssHex: String) {
-        var s = cssHex.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.hasPrefix("#") { s.removeFirst() }
-        if s.count == 3 {
-            s = s.map { "\($0)\($0)" }.joined()
-        }
-        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
-        self.init(hex: v)
-    }
-}
-
 extension UIColor {
 
     /// `#rrggbb` / `rrggbb` / `#rgb`。解釈できない値は nil（呼び出し側でニュートラル灰へ落とす）。
+    /// **hex を解くのはここだけ** —— SwiftUI 側の `Color(cssHex:)` もこれに委譲する。
     convenience init?(cssHex: String) {
         var s = cssHex.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.hasPrefix("#") { s.removeFirst() }
@@ -52,22 +26,11 @@ extension UIColor {
         )
     }
 
-    /// テーマカラーが取れなかった作品に使うニュートラル色（DesignTokens の 0x8A8A6F と同値）。
+    /// テーマカラーが取れなかった作品の代替色。**この 1 か所だけが値を持つ。**
     static let anitabiNeutralTheme = UIColor(red: 0x8A / 255, green: 0x8A / 255, blue: 0x6F / 255, alpha: 1)
 
-    /// WCAG の相対輝度。sRGB のガンマを戻してから重み付けする。
-    var relativeLuminance: CGFloat {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        guard getRed(&r, green: &g, blue: &b, alpha: &a) else { return 0 }
-        func linear(_ c: CGFloat) -> CGFloat {
-            c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
-        }
-        return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
-    }
-
     /// 白描边と同化してしまう明るいテーマカラーか。
-    /// 判定は DesignTokens と揃えてガンマ補正なしの単純加重（閾値 0.82）を使う ——
-    /// 「白い縁取りに溶けるか」の見た目判断であって、可読性コントラストの話ではないため。
+    /// 「白い縁取りに溶けるか」の見た目判断なので、ガンマ補正なしの単純加重で足りる。
     var needsDarkInnerOutline: Bool {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         guard getRed(&r, green: &g, blue: &b, alpha: &a) else { return false }
@@ -88,14 +51,9 @@ extension UIColor {
         )
     }
 
-    static func contrastRatio(_ lhs: UIColor, _ rhs: UIColor) -> CGFloat {
-        let l1 = lhs.relativeLuminance, l2 = rhs.relativeLuminance
-        return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
-    }
-
     /// 作品標のラベル色。テーマカラーを**黒へ寄せて**背景とのコントラストが `minimum` を満たす
-    /// 最小の混合率を返す。混合は `maxMix` で打ち切る（それ以上混ぜると全部ほぼ黒になり、
-    /// 作品ごとの色の差＝地図上の識別子が消えるため）。
+    /// 最小の混合率を返す。`maxMix` で打ち切るのは、混ぜ切ると作品ごとの色の差＝地図上の
+    /// 識別子が消えてしまうため。
     func labelColor(
         on background: UIColor = .white,
         minimum: CGFloat = 4.5,
@@ -103,10 +61,50 @@ extension UIColor {
     ) -> UIColor {
         var candidate = self
         var mix: CGFloat = 0
-        while mix < maxMix, UIColor.contrastRatio(candidate, background) < minimum {
+        while mix < maxMix, Self.contrastRatio(candidate, background) < minimum {
             mix = min(mix + 0.05, maxMix)
             candidate = mixed(with: .black, amount: mix)
         }
         return candidate
+    }
+
+    /// WCAG の相対輝度（sRGB のガンマを戻してから重み付ける）。
+    private var relativeLuminance: CGFloat {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard getRed(&r, green: &g, blue: &b, alpha: &a) else { return 0 }
+        func linear(_ c: CGFloat) -> CGFloat {
+            c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+    }
+
+    private static func contrastRatio(_ lhs: UIColor, _ rhs: UIColor) -> CGFloat {
+        let l1 = lhs.relativeLuminance, l2 = rhs.relativeLuminance
+        return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+    }
+}
+
+extension Color {
+    /// `#rrggbb` / `rrggbb` / `#rgb`。解釈は `UIColor(cssHex:)` に任せる。
+    init?(cssHex: String) {
+        guard let color = UIColor(cssHex: cssHex) else { return nil }
+        self.init(uiColor: color)
+    }
+
+    /// `UIColor.anitabiNeutralTheme` の SwiftUI 版。
+    static let anitabiNeutralTheme = Color(uiColor: .anitabiNeutralTheme)
+
+    /// テーマカラーからグラデーションを作るための素朴なブレンド。
+    func mix(with other: Color, by amount: Double) -> Color {
+        Color(uiColor: UIColor(self).mixed(with: UIColor(other), amount: CGFloat(amount)))
+    }
+
+    /// 封面・剧照が無いときに敷くテーマ色グラデーション（設計稿のプレースホルダー相当）。
+    var anitabiThemeGradient: LinearGradient {
+        LinearGradient(
+            colors: [self, mix(with: .black, by: 0.28)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 }
