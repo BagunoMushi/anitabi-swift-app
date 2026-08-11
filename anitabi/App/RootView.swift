@@ -111,6 +111,9 @@ struct RootView: View {
     @State private var fitTask: Task<Void, Never>?
     /// 可視カードの枠（`SheetShapeReader` の実測。グローバル座標）。
     @State private var cardFrame: CGRect?
+    /// 三段式より下に居るときに見たカードの上縁（window 座標）。署名・浮控の蓋の実測値
+    /// （`attributionLift` / `recordRestingCardTop`）。
+    @State private var restingCardTopY: CGFloat?
 
     // MARK: 呈现スタック（1 枚の sheet の中身）
 
@@ -136,6 +139,16 @@ struct RootView: View {
     @State private var mapView: MKMapView?
     /// 定位钮の見た目だけの状態(授权+直近にタップ)。地図を自分でパン/ピンチしたら系统のフォロー同様に外す。
     @State private var isLocationActive = false
+
+    // MARK: 作品モードの枠追従
+
+    /// 档が動いたら作品の枠を置き直すか。作品カードを開いた／「全部点位」を押した時点で true、
+    /// **ユーザーが自分で地図を動かしたら false** —— 自分で決めた画角を档の上下で奪われるのは、
+    /// Apple マップでも起きない振る舞い。もう一度合わせたい人は「全部点位」を押せる。
+    @State private var workFitFollowsSheet = false
+    @State private var workFitTask: Task<Void, Never>?
+    /// 直近のフィットで使った可視カードの上縁。帯が実質変わっていない档移動を弾くのに使う。
+    @State private var lastWorkFitCardTop: CGFloat?
 
     // MARK: 深リンク／Handoff／状態復元（阶段 8）
 
@@ -189,9 +202,9 @@ struct RootView: View {
 
     private var content: some View {
         mapLayer
-            // 見えている地図の大きさ。镜头を寄せるときにカードで隠れる帯を差し引くのに使う
-            // （`refitWork` / `selectPointFromList`）。これを測り忘れると bottomInset が 0 になり、
-            // 「全部の点位を表示」が開いた直後の画と同じ镜头を出して**効かなく見える**。
+            // 見えている地図の大きさ。一覧から選んだ点をカードの上へ逃がす量に使う
+            // （`selectPointFromList`）。作品フィットの帯はこちらではなく可視カードの実測を使う
+            // （`refitWork` のメモ参照）。
             .onGeometryChange(for: CGSize.self) { $0.size } action: { windowSize = $0 }
             .sheet(isPresented: .constant(!isWelcomePresented)) { residentSheet }
             .task {
@@ -207,6 +220,24 @@ struct RootView: View {
             // 落ち着いた後の姿がここに 1 回だけ届く（同一フレーム内の複数変更はまとめて 1 回）。
             .onChange(of: routerStack) { _, _ in syncStack() }
             .onChange(of: router.workCard) { _, new in didOpenWork(new) }
+            // 地標カードを ✕ で閉じて作品カードへ戻ったら、作品の全点が収まる画へ寄せ直す。
+            // 一覧から点を選んだ時点で镜头はその 1 点に寄っている（`selectPointFromList`）ので、
+            // 戻ったのに寄ったままだと「一覧に戻ったのに地図は別の話をしている」状態になる。
+            // これがあるので中/大档には「查看全部点位」の釦を置かない（`WorkCardSheet`）。
+            //
+            // 針を落とした／作品カードごと閉じた経路では `workCard` も同時に nil になるので、
+            // ここは自然に黙る（＝作品カードへ**戻った**ときだけ効く）。
+            .onChange(of: router.pointCard) { old, new in
+                guard old != nil, new == nil, router.workCard != nil else { return }
+                // 档は `syncStack()` が同じフレームで作品カードの記憶値へ戻す。帯が確定してから
+                // 測りたいので、ここは即時フィットではなく追従（防抖）に乗せる。
+                workFitFollowsSheet = true
+                lastWorkFitCardTop = nil
+                scheduleWorkRefit()
+            }
+            // 档が吸着したら枠を置き直す（畳めば中央へゆっくり収まる）。`PresentationDetent` は
+            // 吸着後にしか変わらないので、拖动の途中に镜头が付いてくることはない。
+            .onChange(of: detent) { _, _ in scheduleWorkRefit() }
             .onChange(of: router.wantsWelcomeReplay) { _, wants in
                 guard wants else { return }
                 router.wantsWelcomeReplay = false
@@ -247,6 +278,7 @@ struct RootView: View {
                 selectedPointID: router.selectedPointID,
                 isPhotoLayerVisible: isPhotoLayerVisible,
                 baseStyle: baseStyle,
+                attributionLift: attributionLift,
                 droppedPinCoordinate: router.droppedPin?.coordinate,
                 onSelectPoint: { router.selectPoint($0) },  // 地図経由は镜头を動かさない
                 onSelectWork: { router.focusWork(id: $0) },
@@ -261,32 +293,35 @@ struct RootView: View {
                 // 実行時警告になるので、必ず 1 拍遅らせる。
                 onMapViewReady: { view in DispatchQueue.main.async { mapView = view } }
             )
+            // 浮控列は**地図の overlay として**載せ、`.ignoresSafeArea()` は**その後**に掛ける。
+            // 順番が肝：`.ignoresSafeArea()` の後ろに付けた overlay は「広がる前」の枠
+            // （下端 ＝ 安全区の上端）に並ぶので、`mapView.bounds.maxY`（＝窓の下端）を
+            // 物差しにしている下余白と 34pt 食い違う —— 実測で 34pt 高く浮いた。
+            // 内側に入れれば地図と同じ枠（窓いっぱい）で並び、署名と同じ物差しが通る。
+            .overlay(alignment: .bottomTrailing) {
+                if let mapView {
+                    mapControls(mapView)
+                        .opacity(isMapChromeHidden ? 0 : 1)
+                        .animation(.anitabiSpring, value: isMapChromeHidden)
+                }
+            }
             .ignoresSafeArea()
 
-            // 浮控列・比例尺は安全区を尊重する側（`ignoresSafeArea` を掛けない ZStack の子）。
-            // 地図だけが全画面まで伸び、これらは Dynamic Island／ノッチの下に自然に収まる。
+            // 比例尺は左上のまま（Apple マップ同位）。安全区を尊重する側に置くので
+            // Dynamic Island／ノッチの下に自然に収まる。
             if let mapView {
                 VStack(spacing: 0) {
-                    HStack(alignment: .top, spacing: 0) {
+                    HStack(spacing: 0) {
                         MapScaleView(mapView: mapView)
                             .fixedSize()
                         Spacer(minLength: 0)
-                        MapControlStack(
-                            mapView: mapView,
-                            isLocationAuthorized: locationProvider.isAuthorized,
-                            isLocationActive: $isLocationActive,
-                            baseStyle: $baseStyle,
-                            isPhotoLayerVisible: $isPhotoLayerVisible,
-                            onLocationTap: handleLocationTap
-                        )
                     }
                     .padding(.top, 16)
                     .padding(.horizontal, 16)
-                    // 三段式（設計稿 92.2%）まで持ち上がったら浮控を退かせる。
-                    .opacity(stage(of: top) == .expanded ? 0 : 1)
-                    .animation(.anitabiSpring, value: stage(of: top) == .expanded)
                     Spacer(minLength: 0)
                 }
+                .opacity(isMapChromeHidden ? 0 : 1)
+                .animation(.anitabiSpring, value: isMapChromeHidden)
             }
 
             VStack(spacing: 0) {
@@ -295,6 +330,74 @@ struct RootView: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    /// 浮控列（定位・底図・方位）。左下の署名と同じく、カードの上縁に貼り付いて拖动に追従する。
+    private func mapControls(_ mapView: MKMapView) -> some View {
+        MapControlStack(
+            mapView: mapView,
+            isLocationAuthorized: locationProvider.isAuthorized,
+            isLocationActive: $isLocationActive,
+            baseStyle: $baseStyle,
+            isPhotoLayerVisible: $isPhotoLayerVisible,
+            onLocationTap: handleLocationTap
+        )
+        .padding(.trailing, 16)
+        .padding(.bottom, controlsBottomMargin(mapView))
+    }
+
+    /// 浮控列の下余白＝「地図の下端からカードの上縁まで」＋隙間。
+    ///
+    /// 持ち上げ量は**署名とまったく同じ関数から取る**（`MapAttributionLift.resolvedLift`）——
+    /// 座標変換も蓋もあちらに 1 つだけ置いてあるので、左下の署名と右下の浮控が別の物差しに
+    /// 分かれることがない。ここが自前計算だった版は、SwiftUI で測った枠が `.ignoresSafeArea()`
+    /// で広がる前の値だったせいで 18pt 低く出た（実機）。
+    private func controlsBottomMargin(_ mapView: MKMapView) -> CGFloat {
+        let gap = Self.controlsCardGap
+        let lift = attributionLift
+        // 実測が届く前（初回フレーム・欢迎页の裏）は两段式の見積もりに置いておく。
+        return (lift.resolvedLift(in: mapView) ?? lift.ceiling) + gap
+    }
+
+    /// カードの上縁との隙間（Apple マップ実物と同じ「浮きぶん 8 ＋ 8」）。
+    private static let controlsCardGap = SheetLayout.floatingGap + 8
+
+
+    /// 三段式（設計稿 92.2%）まで持ち上がったら地図の付属品（浮控・比例尺）は退かせる。
+    private var isMapChromeHidden: Bool { stage(of: top) == .expanded }
+
+    /// 署名（Apple ロゴ＋「法的情報」）をカードの上へ逃がす指令。
+    ///
+    /// Apple マップの実物と同じ：カードを一段式から持ち上げていく間、署名はその上縁に
+    /// 貼り付いたまま一緒に上がる。ただし**三段目までは追わない** —— 全开したカードは
+    /// 署名を覆ってよく、追うと署名だけが地図の上端まで登って浮いて見える。
+    /// なので蓋（`ceiling`）は两段式のカードの上縁に置く。
+    ///
+    /// 上縁は `SheetShapeReader` の実測（拖动の途中も毎フレーム届く）。
+    ///
+    /// 蓋は**実測を第一の出所にする**（`restingCardTopY`）。档の高さから組んだ見積もり
+    /// （档 ＋ 底部安全区 ＋ 浮きぶん）だけで蓋をしていた版は、見積もりが実際のカードより
+    /// 低く出た端末で `min(実測, 蓋)` が蓋を選び、**署名も浮控もカードの下に潜った**（実機）。
+    /// 見積もりは実測が 1 回も届いていない間の代役でしかない（`resolvedLift` 参照）。
+    private var attributionLift: MapAttributionLift {
+        let layer = top.layer
+        let medium = layer.initialHeight(
+            screenHeight: DesignScale.screenHeight, fitted: fittedHeights[layer]
+        )
+        return MapAttributionLift(
+            cardTopY: cardFrame?.minY,
+            restingCardTopY: restingCardTopY,
+            ceiling: medium + sheetGeometry.bottomInset + SheetLayout.floatingGap
+        )
+    }
+
+    /// 三段式へ持ち上げる前（一段式〜两段式）に見たカードの上縁を覚える＝蓋の実測値。
+    /// window 座標をそのまま持つので、`mapView` がまだ来ていなくても記録できる
+    /// （`SheetShapeReader` は同じ枠を 2 回報せない —— 取り逃すと二度と来ない）。
+    /// カードが差し替わったら忘れる（層ごとに两段式の高さが違う）。
+    private func recordRestingCardTop(_ frame: CGRect?) {
+        guard let frame, stage(of: top) != .expanded else { return }
+        restingCardTopY = frame.minY
     }
 
     // MARK: 常駐 sheet（1 枚）
@@ -372,7 +475,12 @@ struct RootView: View {
         .environment(\.sheetBottomInset, sheetGeometry.bottomInset)
         // 可視カード（系统が描く浮きカプセル）の枠を UIKit 側から実測する。SwiftUI の中身の枠とは
         // 一致せず、系统は API でも safe area でも教えてくれないので、ここだけ UIKit を覗く。
-        .background { SheetShapeReader { cardFrame = $0 } }
+        .background {
+            SheetShapeReader { frame in
+                cardFrame = frame
+                recordRestingCardTop(frame)
+            }
+        }
         .environment(\.compactBarInsets, compactBarInsets)
         .onGeometryChange(for: SheetGeometry.self) { proxy in
             SheetGeometry(
@@ -584,6 +692,9 @@ struct RootView: View {
         let live = Set(next.map(\.id))
         rememberedDetents = memory.filter { live.contains($0.key) }
 
+        // 蓋の実測値は層ごとに違う（两段式の高さが違う）ので、カードが差し替わったら捨てる。
+        restingCardTopY = nil
+
         withAnimation(.anitabiSpring) {
             stack = next
             detent = restored ?? initialDetent(target.layer)
@@ -597,6 +708,9 @@ struct RootView: View {
     /// 外れるのと同じ理屈（この App には本物の追従モードは無いが、見た目だけ揃える）。
     private func collapseTopSheet() {
         isLocationActive = false
+        // 自分で地図を動かした人の画角は奪わない —— これから落ちる档の変化で枠へ寄せ直すと、
+        // パンし始めた瞬間に镜头が戻ってしまう。
+        stopWorkFitFollowing()
         withAnimation(.anitabiSpring) {
             detent = top.layer.minDetent(measured: compactHeights[top.layer])
         }
@@ -625,21 +739,80 @@ struct RootView: View {
     /// 深リンクの no-fly 変体（c/z が来ている）ときは `suppressNextWorkFit` が立っているので、
     /// このフィットだけ 1 回黙る——訪問記録（`rememberVisit`）はそれでも取る。
     private func didOpenWork(_ selection: WorkSelection?) {
-        guard let selection else { return }
+        guard let selection else {
+            // 作品モードを出たら追従も畳む（次に開いた作品が古い指令を拾わないように）。
+            stopWorkFitFollowing()
+            return
+        }
         store.rememberVisit(bangumiID: selection.id)
         if suppressNextWorkFit {
             suppressNextWorkFit = false
+            // 深リンクが c/z を指定している＝画角は呼び出し側が決めている。档の上下で奪わない。
+            stopWorkFitFollowing()
             return
         }
         refitWork(selection.id)
     }
 
-    /// 作品の全点が収まる画へ寄せ直す。初回 `didOpenWork` と「查看全部点位」ボタンの両方から呼ぶ。
+    private func stopWorkFitFollowing() {
+        workFitTask?.cancel()
+        workFitTask = nil
+        workFitFollowsSheet = false
+        lastWorkFitCardTop = nil
+    }
+
+    /// 作品の枠が丸ごと収まる画へ寄せ直す。初回 `didOpenWork`・地標カードから戻ったとき・
+    /// 一段式身份条の「全部点位」・档を動かしたとき（`scheduleWorkRefit`）から呼ぶ。
+    ///
+    /// 収める相手は**圧暗レイヤーが実際に描いている多角形**（`WorkRegionOverlay.hull`）。
+    /// 以前は点群をそのまま `fitRect` に渡していたが、あちらは離群点を切り捨てるので
+    /// 浜松〜上信越に散る作品（ゆるキャン△ SEASON 3 など）では枠の外側が画面に入らなかった
+    /// ——**枠と镜头が別の点集合を見ていた**のが原因（実機で確認）。
+    ///
+    /// カードに譲る帯は指定しない：`MapCanvas` が可視カードの上縁を実測して使う（署名・浮控と
+    /// 同じ物差し）。設計稿の比率で見積もっていた版は、档を畳んでも帯が縮まなかった。
     private func refitWork(_ id: Int) {
         let coordinates = (store.pointsByBangumi[id] ?? []).map(\.coordinate)
         guard !coordinates.isEmpty else { return }
-        command = .fitWork(coordinates, bottomInset: windowSize.height * SheetLayout.workFraction)
+        workFitFollowsSheet = true
+        lastWorkFitCardTop = cardFrame?.minY
+        if let hull = WorkRegionOverlay.hull(for: coordinates) {
+            command = .fitWork(hull, trimsOutliers: false)
+        } else {
+            // 判定範囲外（海外点を含む）の作品は圧暗レイヤーも出ないので、従来の点群フィット。
+            command = .fitWork(coordinates)
+        }
     }
+
+    /// 档が動いたら、作品の枠を新しい可視域へ置き直す（「畳んだら中央へゆっくり収まる」）。
+    ///
+    /// **カードが動き終わってから測る**のが肝：`PresentationDetent` は吸着した瞬間に変わるが、
+    /// 可視カード（`cardFrame`）はそこからバネで動くので、すぐ測ると前の档の帯でフィットする。
+    ///
+    /// 帯がほとんど変わっていないときは動かさない（`lastWorkFitCardTop` と比較）——
+    /// 作品カードを開いた直後は「首页の两段式 → 作品の两段式」で十数 pt しか違わないので、
+    /// これが無いと入場のフライトが着地寸前に上書きされて二度動く。
+    private func scheduleWorkRefit() {
+        guard workFitFollowsSheet, let work = router.workCard else { return }
+        workFitTask?.cancel()
+        workFitTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(360))
+            guard
+                !Task.isCancelled,
+                workFitFollowsSheet,
+                router.workCard?.id == work.id,
+                top.layer == .work,
+                // 三段式はカードが地図をほぼ占める（浮控も退いている）。枠を詰め込む意味が無い。
+                detent != maxDetent(.work),
+                let cardTop = cardFrame?.minY,
+                abs(cardTop - (lastWorkFitCardTop ?? 0)) > Self.workRefitThreshold
+            else { return }
+            refitWork(work.id)
+        }
+    }
+
+    /// この pt 以上カードの上縁が動いたときだけ枠を置き直す。
+    private static let workRefitThreshold: CGFloat = 24
 
     /// 一覧から地標を選んだ経路だけ镜头を寄せる。カードに隠れないよう半分ぶん上へ逃がす。
     private func selectPointFromList(_ point: ScenePoint) {

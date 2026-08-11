@@ -27,16 +27,7 @@ final class WorkRegionOverlay: MKPolygon {
     /// 2. `turf.convex()` → `turf.buffer(1000m)` —— 凸包の**真バッファ**（各辺を法線方向へ
     ///    平行移動し、頂点は円弧で継ぐ）。重心押し出しの近似ではない。
     static func make(for coordinates: [CLLocationCoordinate2D], bufferMeters: Double = 1_000) -> WorkRegionOverlay? {
-        guard !coordinates.isEmpty else { return nil }
-
-        // Web の `l` フィルタと同値。
-        let outOfRange = coordinates.contains {
-            $0.longitude < 0 || $0.longitude > 153 || $0.latitude < 20 || $0.latitude > 45
-        }
-        guard !outOfRange else { return nil }
-
-        let hull = bufferedHull(of: coordinates, meters: bufferMeters)
-        guard hull.count >= 3 else { return nil }
+        guard let hull = hull(for: coordinates, bufferMeters: bufferMeters) else { return nil }
 
         let interior = MKPolygon(coordinates: hull, count: hull.count)
         let world = MKMapRect.world
@@ -49,6 +40,30 @@ final class WorkRegionOverlay: MKPolygon {
         let overlay = WorkRegionOverlay(points: &corners, count: corners.count, interiorPolygons: [interior])
         overlay.hull = hull
         return overlay
+    }
+
+    /// 圧暗レイヤーが**実際に描く**多角形の頂点（`make(for:)` の内環そのもの）。
+    ///
+    /// カメラのフィット（`RootView.refitWork`）はこれと**同じ頂点**を使う。別の点集合で組むと
+    /// 枠が画面に収まらない（実機で発生：`MapCameraPlanner.fitRect` は離群点を切り捨てるので、
+    /// 浜松〜上信越に散る作品では枠の半分が画面外に出たままフィット完了になっていた）。
+    ///
+    /// `nil` を返すのは「圧暗レイヤーも描かれない」場合と一致する（判定範囲外・頂点 3 未満）。
+    /// 呼び出し側はそのとき従来の点群フィットへ落ちればよい。
+    static func hull(
+        for coordinates: [CLLocationCoordinate2D],
+        bufferMeters: Double = 1_000
+    ) -> [CLLocationCoordinate2D]? {
+        guard !coordinates.isEmpty else { return nil }
+
+        // Web の `l` フィルタと同値。
+        let outOfRange = coordinates.contains {
+            $0.longitude < 0 || $0.longitude > 153 || $0.latitude < 20 || $0.latitude > 45
+        }
+        guard !outOfRange else { return nil }
+
+        let hull = bufferedHull(of: coordinates, meters: bufferMeters)
+        return hull.count >= 3 ? hull : nil
     }
 
     /// 暗幕の内側（＝作品の領域）か。

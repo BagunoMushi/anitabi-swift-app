@@ -138,6 +138,13 @@ enum MapCameraPlanner {
         return boundingRect(kept.count >= 3 ? kept : coordinates)
     }
 
+    /// 与えられた座標を**そのまま**囲む矩形（離群点の切り捨てをしない）。
+    /// 圧暗レイヤーの頂点（`WorkRegionOverlay.hull`）を収めるときはこちらを使う——
+    /// あの多角形は既に全点から組まれているので、ここで間引くと枠が画面外にはみ出す。
+    static func enclosingRect(of coordinates: [CLLocationCoordinate2D]) -> MKMapRect? {
+        boundingRect(coordinates)
+    }
+
     private static func boundingRect(_ coordinates: [CLLocationCoordinate2D]) -> MKMapRect? {
         guard let first = coordinates.first else { return nil }
         var rect = MKMapRect(origin: MKMapPoint(first), size: MKMapSize(width: 0, height: 0))
@@ -153,10 +160,23 @@ enum MapCameraPlanner {
         return rect
     }
 
-    /// 四辺 7% ＋ 下辺にカードの高さ。Apple マップの「経路の全体表示」と同じ考え方。
-    static func edgePadding(viewSize: CGSize, bottomInset: CGFloat) -> UIEdgeInsets {
+    /// 四辺 7% ＋ 上辺に安全区（Dynamic Island／ステータスバー）＋ 下辺にカードの高さ。
+    /// Apple マップの「経路の全体表示」と同じ考え方。
+    ///
+    /// `topInset` を渡さなかった版は、枠の上端が Dynamic Island の下に潜っていた（実機）——
+    /// 地図は `.ignoresSafeArea()` で窓いっぱいに広がっているので、安全区はここで明示するしかない。
+    static func edgePadding(
+        viewSize: CGSize,
+        topInset: CGFloat = 0,
+        bottomInset: CGFloat
+    ) -> UIEdgeInsets {
         let inset = viewSize.width * 0.07
-        return UIEdgeInsets(top: inset, left: inset, bottom: inset + bottomInset, right: inset)
+        return UIEdgeInsets(
+            top: inset + topInset,
+            left: inset,
+            bottom: inset + bottomInset,
+            right: inset
+        )
     }
 
     /// フィット結果が寄りすぎないよう `maxFitZoom` で頭打ちにする。

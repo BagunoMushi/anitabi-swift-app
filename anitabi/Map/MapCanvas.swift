@@ -19,6 +19,7 @@
 //  | `selectedPointID` | 選択中の地標。選択状態は**外部が持つ**。地図は気球に morph するだけ |
 //  | `isPhotoLayerVisible` | 劇照サムネイル標のレイヤー切り替え |
 //  | `baseStyle` | `.standard` / `.hybrid`（衛星） |
+//  | `attributionLift` | 署名（Apple ロゴ）をカードの上へ逃がす指令。两段式まで追従・三段式では追わない |
 //  | `droppedPinCoordinate` | 長押しで落とした針（阶段 7）。`nil` で撤去 |
 //
 //  ## 出力（全てクロージャ）
@@ -80,8 +81,12 @@ struct MapCameraCommand: Identifiable, Equatable {
         /// 一覧から選んだ 1 点へ。`priority`（最近傍距離 m）から寄り具合を決め、
         /// `verticalOffset` pt ぶん画面上寄りに置く（下半分はカードで隠れるため）。
         case flyToPoint(CLLocationCoordinate2D, priority: Int?, verticalOffset: CGFloat)
-        /// 作品の全点が収まる範囲へ。`bottomInset` は作品カードの高さ。
-        case fitWork([CLLocationCoordinate2D], bottomInset: CGFloat)
+        /// 与えられた座標が全部収まる範囲へ（作品モードの「枠を丸ごと見せる」）。
+        /// - `bottomInset`: カードに譲る帯。`nil` なら**可視カードの上縁を実測して使う**
+        ///   （`attributionLift.rawLift`）——署名・浮控と同じ物差しなので、档を跨いでもずれない。
+        /// - `trimsOutliers`: 離群点を切り捨てるか。圧暗レイヤーの頂点を渡すときは `false`
+        ///   （あの多角形は全点から組まれているので、ここで間引くと枠が画面外に出る）。
+        case fitWork([CLLocationCoordinate2D], bottomInset: CGFloat?, trimsOutliers: Bool)
         case userLocation(span: CLLocationDegrees)
     }
 
@@ -108,10 +113,56 @@ struct MapCameraCommand: Identifiable, Equatable {
 
     static func fitWork(
         _ coordinates: [CLLocationCoordinate2D],
-        bottomInset: CGFloat = 0,
+        bottomInset: CGFloat? = nil,
+        trimsOutliers: Bool = true,
         animated: Bool = true
     ) -> MapCameraCommand {
-        MapCameraCommand(kind: .fitWork(coordinates, bottomInset: bottomInset), animated: animated)
+        MapCameraCommand(
+            kind: .fitWork(coordinates, bottomInset: bottomInset, trimsOutliers: trimsOutliers),
+            animated: animated
+        )
+    }
+}
+
+/// 署名（Apple ロゴ＋「法的情報」）をどこまで持ち上げるかの指令。
+///
+/// Apple マップと同じ挙動を写す：カードが一段式→两段式へ上がる**間はずっと**署名がその上に
+/// 乗ったまま付いてくる。三段目へはもう追わない（そこまで開いたカードは署名を覆ってよい）。
+struct MapAttributionLift: Equatable {
+    /// 可視カードの上縁（window 座標）。`SheetShapeReader` の実測。nil なら既定位置のまま。
+    var cardTopY: CGFloat?
+    /// 三段式より下に居るときに最後に見たカードの上縁（window 座標）。**蓋の実測値**。
+    /// nil の間（実測が 1 回も届いていない間）は蓋をしない —— 見積もりだけで蓋をすると、
+    /// 見積もりが実物より低い端末で署名・浮控がカードの下に潜る（実機で発生）。
+    var restingCardTopY: CGFloat?
+    /// 蓋の見積もり（地図の下端からの距離）。档の高さから組んだ値で、実測の代役。
+    var ceiling: CGFloat = MapCanvas.attributionBottomMargin
+
+    /// 「地図の下端からカードの上縁まで」。蓋（两段式の位置）で止めた最終値。
+    /// 署名（`applyAttributionLift`）と浮控列（`RootView.controlsBottomMargin`）が共有する。
+    /// 座標変換をここ 1 か所に閉じ込めてあるので、2 つが別の物差しに分かれることがない。
+    func resolvedLift(in mapView: MKMapView) -> CGFloat? {
+        guard let raised = rawLift(in: mapView) else { return nil }
+        // 実測の蓋があるときだけ、そちらを下限として押し上げる。
+        guard let restingCardTopY, let capped = lift(of: restingCardTopY, in: mapView) else {
+            return raised
+        }
+        return min(raised, max(ceiling, capped))
+    }
+
+    /// 蓋を掛けない生の値＝「地図の下端から**いま見えているカードの上縁**まで」。
+    ///
+    /// カメラのフィット（`.fitWork`）はこちらを使う。蓋付き（`resolvedLift`）は「三段式まで
+    /// 署名を追わせない」ための頭打ちなので、一段式まで畳んだカードに対しては**実際より広い帯**を
+    /// 返す —— それでフィットすると畳んだのに絵が上半分に寄ったままになる。
+    func rawLift(in mapView: MKMapView) -> CGFloat? {
+        guard let cardTopY else { return nil }
+        return lift(of: cardTopY, in: mapView)
+    }
+
+    private func lift(of windowY: CGFloat, in mapView: MKMapView) -> CGFloat? {
+        guard mapView.window != nil else { return nil }
+        return mapView.bounds.maxY - mapView.convert(CGPoint(x: 0, y: windowY), from: nil).y
     }
 }
 
@@ -126,6 +177,8 @@ struct MapCanvas: UIViewRepresentable {
     var selectedPointID: String?
     var isPhotoLayerVisible = true
     var baseStyle: MapBaseStyle = .standard
+    /// 署名を常駐カードの上へ逃がす指令（既定＝`attributionBottomMargin` に据え置き）。
+    var attributionLift = MapAttributionLift()
     /// 長押しで落とした針（阶段 7）。`nil` なら地図上に何も置かない。系统の赤いマーカーで表示し、
     /// `nil` に戻れば（呼び出し側が `AppRouter.droppedPin` を消せば）そのまま撤去される。
     var droppedPinCoordinate: CLLocationCoordinate2D?
@@ -160,7 +213,9 @@ struct MapCanvas: UIViewRepresentable {
     /// 100pt の根拠（Maestro の hierarchy 実測・iPhone 17 Pro）：収起档の HomeSheet の上縁は
     /// 画面下から約 100pt（`SheetLayout.homeMinHeight` 72 ＋ ホームインジケータ帯）。
     /// MKMapView は署名の下端をこの余白のさらに約 10pt 上へ置くので、100 で約 10pt 空く。
-    /// 半开／全开まで持ち上げれば署名は覆われるが、それは Apple マップ自身と同じ挙動。
+    ///
+    /// これは**下限**（＝一段式のときの値）。カードが上がる間は `attributionLift` が
+    /// 可視カードの上縁まで毎フレーム引き上げる（`Coordinator.applyAttributionLift`）。
     ///
     /// **この値はカメラには効かせない**（`Coordinator.compensatingMargin` で打ち消す）。
     static let attributionBottomMargin: CGFloat = 100
@@ -317,6 +372,8 @@ extension MapCanvas {
         func sync(with parent: MapCanvas, mapView: MKMapView) {
             self.parent = parent
 
+            applyAttributionLift(parent.attributionLift, on: mapView)
+
             if baseStyle != parent.baseStyle {
                 baseStyle = parent.baseStyle
                 applyStyle(parent.baseStyle, on: mapView)
@@ -365,6 +422,24 @@ extension MapCanvas {
                 lastCommandID = command.id
                 execute(command, on: mapView)
             }
+        }
+
+        /// 署名を常駐カードの上へ逃がす。`layoutMargins.bottom` が唯一の摘み——MapKit は
+        /// 署名をこの内側にしか置かない（規約上、隠すのも自前で描き直すのも不可）。
+        ///
+        /// カードの上縁は window 座標で届くので、地図の座標系へ変換してから下端との差を採る
+        /// （地図は全画面だが、画面高を定数で持つと向き・機種でずれる）。
+        /// 下限は `attributionBottomMargin`、上限は呼び出し側が入れた两段式の高さ。
+        ///
+        /// 余白を動かしても**描画は動かない**（カメラは全 bounds に錨を打っている。
+        /// 動くのは `region` の意味と `setVisibleMapRect` の収め先だけで、そちらは
+        /// `compensatingMargin` が同じ値を引いて打ち消す）。
+        private func applyAttributionLift(_ lift: MapAttributionLift, on mapView: MKMapView) {
+            let base = MapCanvas.attributionBottomMargin
+            let margin = max(lift.resolvedLift(in: mapView) ?? base, base)
+            // 拖动中は毎フレーム来るので、1pt 未満の揺れでは版面を組み直させない。
+            guard abs(mapView.layoutMargins.bottom - margin) >= 1 else { return }
+            mapView.layoutMargins.bottom = margin
         }
 
         private func applyStyle(_ style: MapBaseStyle, on mapView: MKMapView) {
@@ -586,11 +661,24 @@ extension MapCanvas {
                     animated: command.animated
                 )
 
-            case .fitWork(let coordinates, let bottomInset):
-                guard let raw = MapCameraPlanner.fitRect(for: coordinates) else { return }
+            case .fitWork(let coordinates, let bottomInset, let trimsOutliers):
+                let fitted = trimsOutliers
+                    ? MapCameraPlanner.fitRect(for: coordinates)
+                    : MapCameraPlanner.enclosingRect(of: coordinates)
+                guard let raw = fitted else { return }
                 let rect = MapCameraPlanner.clampedToMaxZoom(raw, viewSize: size)
+                // カードに譲る帯は実測（可視カードの上縁）を第一の出所にする。指令に値が入って
+                // いればそちらを尊重する（harness や、まだカードが測れていない経路）。
+                let cardInset = bottomInset
+                    ?? parent.attributionLift.rawLift(in: mapView)
+                    ?? parent.attributionLift.ceiling
                 let padding = Self.compensatingMargin(
-                    MapCameraPlanner.edgePadding(viewSize: size, bottomInset: bottomInset)
+                    MapCameraPlanner.edgePadding(
+                        viewSize: size,
+                        topInset: mapView.safeAreaInsets.top,
+                        bottomInset: max(cardInset, 0)
+                    ),
+                    on: mapView
                 )
                 let apply = { mapView.setVisibleMapRect(rect, edgePadding: padding, animated: true) }
                 command.animated ? animateCamera(apply) : mapView.setVisibleMapRect(
@@ -618,8 +706,10 @@ extension MapCanvas {
             animateCamera { mapView.setRegion(region, animated: true) }
         }
 
-        /// 署名を sheet の上へ逃がすために `layoutMargins.bottom` へ入れた
-        /// `MapCanvas.attributionBottomMargin` を、カメラ指令からだけ差し引いて返す。
+        /// 署名を sheet の上へ逃がすために `layoutMargins.bottom` へ入れた量を、
+        /// カメラ指令からだけ差し引いて返す。**定数ではなく今の余白を読む**——
+        /// 余白はカードの高さに合わせて動くので（`applyAttributionLift`）、
+        /// 定数で引くと持ち上がっている最中の指令だけ縮尺がずれる。
         ///
         /// MKMapView にとって `layoutMargins` は「地図の論理視口はこの内側」という宣言で、
         /// `setVisibleMapRect(_:edgePadding:)` はその論理視口をさらに `edgePadding` で
@@ -630,9 +720,12 @@ extension MapCanvas {
         /// 戻さないと z11.86。上下に半分ずつ分けて戻すと縮尺は z12.00 に直るが、枠の中心が
         /// 余白の半分だけ上へ寄り、描画が丸ごと 40pt 上がる（余白 0 版との画素差分で確認）。
         /// だから半分ずつではなく下辺で一括して戻す。
-        private static func compensatingMargin(_ padding: UIEdgeInsets = .zero) -> UIEdgeInsets {
+        private static func compensatingMargin(
+            _ padding: UIEdgeInsets = .zero,
+            on mapView: MKMapView
+        ) -> UIEdgeInsets {
             var padding = padding
-            padding.bottom -= MapCanvas.attributionBottomMargin
+            padding.bottom -= mapView.layoutMargins.bottom
             return padding
         }
 
@@ -643,7 +736,7 @@ extension MapCanvas {
         /// 伸ばして相殺する（左右の余白は 0 なので経度方向・ズームは元のままで正しい）。
         private func fullBoundsRegion(of mapView: MKMapView) -> MKCoordinateRegion {
             let height = mapView.bounds.height
-            let inner = height - MapCanvas.attributionBottomMargin
+            let inner = height - mapView.layoutMargins.bottom
             guard inner > 0 else { return mapView.region }
             let span = mapView.region.span
             return MKCoordinateRegion(
@@ -658,7 +751,7 @@ extension MapCanvas {
         }
 
         private func move(to rect: MKMapRect, on mapView: MKMapView, animated: Bool) {
-            let padding = Self.compensatingMargin()
+            let padding = Self.compensatingMargin(on: mapView)
             guard animated else {
                 mapView.setVisibleMapRect(rect, edgePadding: padding, animated: false)
                 return

@@ -2,8 +2,12 @@
 //  MapControlStack.swift
 //  anitabi
 //
-//  右上の浮控列（Apple マップ同位）。実測規格は `SheetDesign.swift` の表と同じ出所
+//  浮控列（Apple マップ同位）。実測規格は `SheetDesign.swift` の表と同じ出所
 //  （2026-08-09・Maestro dump）：玻璃钮 48×48・纵列合并成一整块・距屏边 16pt。
+//
+//  置き場所は**右下・常駐カードの上縁**（Apple マップ実物 2026-08-10 対照）。左下の署名
+//  （Apple ロゴ＋法的情報）と同じく、カードの上縁に貼り付いて拖动に追従する —— 地図の中身は
+//  見ない。位置決めそのものは呼び出し側（`RootView.mapControls`）が持つ。
 //
 //  ガラスは**塊に 1 回だけ**掛ける（48×96 のカプセル 1 枚に図标を 2 つ載せる）。
 //  釦ごとに `.glassEffect(in: .circle)` を掛けて `.glassEffectUnion` で束ねる書き方は
@@ -18,7 +22,7 @@
 import MapKit
 import SwiftUI
 
-/// 右上の浮控列本体。`mapView` が来るまで（`MapCanvas` が `onMapViewReady` を呼ぶまで）は
+/// 浮控列本体。`mapView` が来るまで（`MapCanvas` が `onMapViewReady` を呼ぶまで）は
 /// 呼び出し側が丸ごと出さない——指南針が `MKMapView` 無しには作れないため。
 struct MapControlStack: View {
     let mapView: MKMapView
@@ -35,6 +39,12 @@ struct MapControlStack: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            // 方位釦は**カプセルの上**。この列はカードの上縁に下端を合わせて置くので、
+            // 下に付けると「回すと現れる／北へ戻すと消える」たびにカプセルが上下に跳ねる。
+            // 上に伸ばせばカプセルはカードの縁に貼り付いたまま動かない。
+            MapCompassButtonRepresentable(mapView: mapView)
+                .fixedSize()
+
             GlassContainerCompat {
                 VStack(spacing: 0) {
                     locationButton
@@ -49,11 +59,6 @@ struct MapControlStack: View {
                     .fill(Color(.separator))
                     .frame(width: Self.separatorWidth, height: 0.5)
             }
-            // 系统コントロールなので独自のガラスは足さない（上のコメント参照）。
-            // 幅を強制しない —— 自身の intrinsicContentSize（約 30pt）のまま、
-            // 外側 VStack の既定中央寄せで 48pt 幅の列に自然に収まる。
-            MapCompassButtonRepresentable(mapView: mapView)
-                .fixedSize()
         }
     }
 
