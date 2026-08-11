@@ -139,6 +139,8 @@ struct RootView: View {
     @State private var mapView: MKMapView?
     /// 定位钮の見た目だけの状態(授权+直近にタップ)。地図を自分でパン/ピンチしたら系统のフォロー同様に外す。
     @State private var isLocationActive = false
+    /// 「随机作品」の冷却（镜头が滑り終わるまで＝`flyDuration`）。連打で飛行が上書きされるのを防ぐ。
+    @State private var isRandomCoolingDown = false
 
     // MARK: 作品モードの枠追従
 
@@ -305,6 +307,15 @@ struct RootView: View {
                         .animation(.anitabiSpring, value: isMapChromeHidden)
                 }
             }
+            // 「随机作品」は左下・Apple 署名の**上**（浮控列と対になる位置）。同じ枠に載せる理由は
+            // 上のメモと同じ——署名と同じ物差しを通すため、`.ignoresSafeArea()` より内側に置く。
+            .overlay(alignment: .bottomLeading) {
+                if let mapView {
+                    randomWorkButton(mapView)
+                        .opacity(isMapChromeHidden ? 0 : 1)
+                        .animation(.anitabiSpring, value: isMapChromeHidden)
+                }
+            }
             .ignoresSafeArea()
 
             // 比例尺は左上のまま（Apple マップ同位）。安全区を尊重する側に置くので
@@ -362,6 +373,26 @@ struct RootView: View {
     /// カードの上縁との隙間（Apple マップ実物と同じ「浮きぶん 8 ＋ 8」）。
     private static let controlsCardGap = SheetLayout.floatingGap + 8
 
+    /// 「随机作品」釦（左下）。浮控列と対になる位置＝Apple 署名の真上に置く。
+    private func randomWorkButton(_ mapView: MKMapView) -> some View {
+        MapRandomWorkButton(isCoolingDown: isRandomCoolingDown, action: rollRandomWork)
+            .padding(.leading, 16)
+            .padding(.bottom, randomButtonBottomMargin(mapView))
+    }
+
+    /// 釦の下余白＝「地図の下端からカードの上縁まで」＋**署名 1 段ぶん**。
+    ///
+    /// 持ち上げ量は署名・浮控列とまったく同じ関数から取る（`MapAttributionLift.resolvedLift`）ので、
+    /// 档を拖动しても 3 つが同じ高さで動く。違うのは足す帯だけ —— こちらは署名を**跨がねばならない**。
+    private func randomButtonBottomMargin(_ mapView: MKMapView) -> CGFloat {
+        let lift = attributionLift
+        return (lift.resolvedLift(in: mapView) ?? lift.ceiling) + Self.attributionBand
+    }
+
+    /// 署名（Apple ロゴ＋法的情報）が持ち上げ線の上に占める帯 ＋ 釦との隙間。
+    /// MapKit は署名の下端を余白線の約 10pt 上に置き（`MapCanvas.attributionBottomMargin` のメモ）、
+    /// 署名そのものの高さは約 18pt。その上へ 8pt 空ける。
+    private static let attributionBand: CGFloat = 36
 
     /// 三段式（設計稿 92.2%）まで持ち上がったら地図の付属品（浮控・比例尺）は退かせる。
     private var isMapChromeHidden: Bool { stage(of: top) == .expanded }
@@ -731,6 +762,21 @@ struct RootView: View {
             UIApplication.shared.open(url)
         default:
             locationProvider.requestAuthorization()
+        }
+    }
+
+    /// 左下の「随机作品」釦。剧照付きの地標が 3 件超ある作品から 1 つ引いて、その作品カードへ飛ぶ
+    /// （候補の条件は `AnitabiStore.randomWork()`）。呈现は router 任せ＝`syncStack()` が作品カードを積む。
+    private func rollRandomWork() {
+        guard !isRandomCoolingDown, let work = store.randomWork() else { return }
+        router.focusWork(id: work.id)
+        router.toast.show(String(localized: "已跳转到《\(work.displayName)》"), symbol: "dice.fill")
+        isRandomCoolingDown = true
+        Task { @MainActor in
+            // 冷却は**镜头が滑り終わるまで**だけ（`flyDuration`）。連打で飛行が上書きされるのを
+            // 防ぐのが目的なので、それ以上待たせる理由が無い（3 秒版は「押せない」と感じる長さだった）。
+            try? await Task.sleep(for: .seconds(MapCameraPlanner.flyDuration))
+            isRandomCoolingDown = false
         }
     }
 

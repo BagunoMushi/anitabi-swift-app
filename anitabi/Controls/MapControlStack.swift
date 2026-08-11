@@ -32,7 +32,9 @@ struct MapControlStack: View {
     @Binding var isPhotoLayerVisible: Bool
     var onLocationTap: () -> Void
 
-    private static let buttonSide: CGFloat = 48
+    /// 玻璃钮 1 つぶんの辺。左下の「随机作品」釦（`MapRandomWorkButton`）も同じ値を使う——
+    /// 別々に持つと片方だけ育って左右で大きさが違う釦が並ぶ。
+    static let buttonSide: CGFloat = 48
     /// 2 钮の境目（Apple マップ実測：幅 28pt のヘアライン）。`overlay` で載せるので
     /// カプセルの総高 96pt には影響しない。
     private static let separatorWidth: CGFloat = 28
@@ -103,6 +105,36 @@ struct MapControlStack: View {
         // （`HomeSheet` の「⋯」釦・`PointCardSheet` の「⋯」釦と同じ理由）。
         .tint(Color.primary)
         .accessibilityLabel("地图设置")
+    }
+}
+
+// MARK: - 随机作品釦（左下・Apple 署名の上）
+
+/// 「随机作品」の単独釦。意匠は右下の定位钮と**まったく同じ**（48×48 の玻璃 ＋ 中立色の図标）で、
+/// 置き場所だけ左下 —— 引いた作品へ镜头が飛ぶ＝地図の操作なので、一覧の中ではなく地図の上に居る。
+///
+/// 冷却中（連打防止・镜头が滑り終わるまで）は図标を副色へ落とす。`.buttonStyle(.plain)` は `disabled` でも
+/// 自分では淡くならないので、色は自分で持つしかない。
+struct MapRandomWorkButton: View {
+    var isCoolingDown: Bool
+    var action: () -> Void
+
+    var body: some View {
+        GlassContainerCompat {
+            Button(action: action) {
+                Image(systemName: "dice")
+                    .imageScale(.large)
+                    .foregroundStyle(isCoolingDown ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(Color.primary))
+                    .frame(width: MapControlStack.buttonSide, height: MapControlStack.buttonSide)
+                    // 定位钮と同じ理由——字形の描线だけが的にならないよう当たり判定を矩形で明示する。
+                    .contentShape(.rect)
+                    .accessibilityHidden(true)
+            }
+            .buttonStyle(.plain)
+            .capsuleGlass(interactive: true)
+            .disabled(isCoolingDown)
+            .accessibilityLabel("随机作品")
+        }
     }
 }
 

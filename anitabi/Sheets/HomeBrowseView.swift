@@ -34,8 +34,6 @@ struct HomeBrowseView: View {
     /// sheet の中身は底部安全区を無効にしてあるので、列の末尾だけ自分で足し戻す。
     @Environment(\.sheetBottomInset) private var sheetBottomInset
 
-    @State private var isRandomCoolingDown = false
-
     /// 「附近」= 5km 圏内。`store.nearby` は 50km まで候補を持つので、ここで絞る。
     private var nearbyWithinRange: [NearbyPoint] {
         Array(store.nearby.filter { $0.distance <= 5_000 }.prefix(3))
@@ -49,7 +47,7 @@ struct HomeBrowseView: View {
                 continueWatchingRow
                 nearbySection
                 workBrowseSection
-                CityGridSection(cities: store.cities, onSelect: onFocusCity, trailing: { randomWorkChip })
+                CityGridSection(cities: store.cities, onSelect: onFocusCity)
                 footer
             }
             .scenePadding(.horizontal)
@@ -200,28 +198,7 @@ struct HomeBrowseView: View {
         }
     }
 
-    // MARK: 4. 热门城市の見出し右端（設計稿 1a の「🎲 随机作品」）
-
-    private var randomWorkChip: some View {
-        Button(action: rollRandomWork) {
-            Label("随机作品", systemImage: "dice")
-        }
-        .buttonStyle(AnitabiCapsuleStyle(kind: .secondary, size: .chip))
-        .disabled(isRandomCoolingDown)
-    }
-
-    private func rollRandomWork() {
-        guard !isRandomCoolingDown, let work = store.randomWork() else { return }
-        router.focusWork(id: work.id)
-        router.toast.show(String(localized: "已跳转到《\(work.displayName)》"), symbol: "dice.fill")
-        isRandomCoolingDown = true
-        Task {
-            try? await Task.sleep(for: .seconds(3))
-            isRandomCoolingDown = false
-        }
-    }
-
-    // MARK: 5. 版権脚注
+    // MARK: 4. 版権脚注
 
     private var footer: some View {
         Text("数据由 anitabi.cn 社区贡献 · CC BY-NC-SA 4.0")
@@ -237,18 +214,19 @@ struct HomeBrowseView: View {
 
 /// 設計稿 1a：3 列のタイル（角丸 14・`padding:10px 12px`）に都市名 14/700 と点数 11。
 /// 剧照は敷かない（硬約束）——地は白い薄膜だけ。
-struct CityGridSection<Trailing: View>: View {
+///
+/// 見出しの右端には何も置かない —— 設計稿 1a の「🎲 随机作品」は地図の左下（Apple 署名の上）へ
+/// 独立した浮控として出した（`MapRandomWorkButton`）。
+struct CityGridSection: View {
     let cities: [CityTile]
     var onSelect: (CityTile) -> Void
-    /// 見出し右端（首页なら「随机作品」、検索の空入力時は何も置かない）。
-    @ViewBuilder var trailing: Trailing
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: SheetMetrics.itemSpacing), count: 3)
 
     var body: some View {
         if !cities.isEmpty {
             VStack(alignment: .leading, spacing: SheetMetrics.headerSpacing) {
-                SheetSectionHeader(title: "热门城市") { trailing }
+                SheetSectionHeader("热门城市")
                 LazyVGrid(columns: columns, alignment: .leading, spacing: SheetMetrics.itemSpacing) {
                     ForEach(cities.prefix(12)) { city in
                         Button { onSelect(city) } label: {
@@ -273,12 +251,6 @@ struct CityGridSection<Trailing: View>: View {
                 }
             }
         }
-    }
-}
-
-extension CityGridSection where Trailing == EmptyView {
-    init(cities: [CityTile], onSelect: @escaping (CityTile) -> Void) {
-        self.init(cities: cities, onSelect: onSelect, trailing: { EmptyView() })
     }
 }
 
