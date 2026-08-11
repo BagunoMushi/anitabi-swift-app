@@ -2,8 +2,10 @@
 //  LocationProvider.swift
 //  anitabi
 //
-//  位置情報。巡礼中は「いま自分の近くに何があるか」が主機能なので、
-//  常時ではなく使用中のみ・水平精度 10m 程度で回す。
+//  位置情報。使い道は「距我 x km」の表示・附近の再計算（50m 動いてから）・検索の並び順だけで、
+//  経路の記録はしていない —— なので**百 m 級の粗い測位で足りる**。粗くすると CoreLocation は
+//  GPS チップを常時焚かずに Wi-Fi／基地局測位へ落とせるので、実機の発熱・電池がまるで違う。
+//  地図の青い現在地点は MKMapView が自前で測るのでここの精度とは無関係。
 //
 
 import CoreLocation
@@ -34,8 +36,11 @@ final class LocationProvider: NSObject {
         authorizationStatus = manager.authorizationStatus
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
-        manager.distanceFilter = 10
+        // 精度は附近再計算の閾値（50m）に合わせる —— それより細かく届いても捨てるだけ。
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        manager.distanceFilter = Self.recomputeThreshold
+        // 静止していたら配信ごと止めてもらう（動き出せば系统が起こしてくれる）。
+        manager.pausesLocationUpdatesAutomatically = true
     }
 
     func requestAuthorization() {

@@ -50,14 +50,37 @@ struct PointCardSheet: View {
         AnitabiImage.url(path: point?.image, plan: "h360")
     }
 
+    /// データ完走前にこのカードへ深链で入った場合だけ骨架屏を出す（完走後に `point` が
+    /// 見つからないのはデータ側の欠番なので、骨架を出し続けない）。
+    private var isLoadingSkeleton: Bool {
+        guard point == nil else { return false }
+        switch store.phase {
+        case .empty, .geometryOnly: return true
+        case .complete, .failed: return false
+        }
+    }
+
     var body: some View {
         ScrollView {
-            if let point {
+            if isLoadingSkeleton {
                 VStack(alignment: .leading, spacing: 0) {
-                    header(point)
-                        // 最小档は**一段式の在場導航条の実高**。中/大档では頭部が別の形に
-                        // 変わるので、一段式の複製を隠して置きそちらを測る。
-                        .overlay(alignment: .top) { compactHeader(point).compactHeightProbe(.point) }
+                    CardHeaderSkeleton(isCompact: stage == .compact, onClose: onClose)
+                        // 実物と同じく、一段式の実高は身份条の複製で測る。
+                        .overlay(alignment: .top) {
+                            CardHeaderSkeleton(isCompact: true, onClose: {}).compactHeightProbe(.point)
+                        }
+                    PointCardSkeleton()
+                        .collapsedInCompactStage(stage)
+                }
+                .scenePadding(.horizontal)
+                .sheetScrollBottomPadding(sheetBottomInset)
+                .animatesSheetStage(stage)
+            } else if let point {
+                VStack(alignment: .leading, spacing: 0) {
+                    header(point, isCompact: stage == .compact)
+                        // 最小档は**一段式の在場導航条の実高**。中/大档では頭部の余白と部品が
+                        // 変わるので、一段式の姿の複製を隠して置きそちらを測る。
+                        .overlay(alignment: .top) { header(point, isCompact: true).compactHeightProbe(.point) }
 
                     VStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
                         if point.needsEtiquetteWarning {
@@ -81,7 +104,7 @@ struct PointCardSheet: View {
                 // 中身の実高を档へ返す（RootView）。剧照・備考・礼儀条の有無で 100pt 近く変わるので、
                 // 比率のままだと下の空きが点ごとにばらつく。三段式が無いので伸びぶんは 0。
                 .fittedContentHeight(.point, stage: stage, expandedDelta: 0)
-                .animation(.anitabiSpring, value: stage)
+                .animatesSheetStage(stage)
             }
         }
         .sheet(item: $safariItem) { item in SafariSheet(url: item.url) }
@@ -102,64 +125,83 @@ struct PointCardSheet: View {
 
     // MARK: - 1. 頭部（設計稿 2c）
 
-    /// 一段式の身份条は上下の余白まで自前で持つ（`compactBarRow`）。中/大档の頭部だけが
-    /// カード共通の上余白（抓手の下 ＋ 8px）と、その下の節との間隔を足す。
-    @ViewBuilder
-    private func header(_ point: ScenePoint) -> some View {
-        if stage == .compact {
-            compactHeader(point)
-        } else {
-            fullHeader(point)
-                .padding(.top, SheetMetrics.topInset)
-                .padding(.bottom, SheetMetrics.headerBottomSpacing)
-        }
-    }
+    /// **1 つの容器のまま档を跨ぐ**頭部（一段式＝設計稿 2c 在場導航条、中/大档＝標題ブロック）。
+    /// 位移感の要は器を入れ替えないこと —— 迷你剧照が抜けると標題ブロックが左端まで**滑って**
+    /// 詰まり、行揃え・行距・余白の差はバネが補間する。入れ替わるのは避けようがない葉だけ
+    /// （跑马灯 ↔ 2 行標題、meta ↔ 作品 chip、迷你剧照・共有の出入り）で、それらは原位で淡換する。
+    private func header(_ point: ScenePoint, isCompact: Bool) -> some View {
+        HStack(
+            alignment: isCompact ? .center : .top,
+            spacing: isCompact ? SheetMetrics.thumbnailGap : SheetMetrics.circleButtonGap
+        ) {
+            if isCompact {
+                SceneThumbnail(url: point.thumbnailURL, size: SheetMetrics.miniThumbnailSize)
+                    // 相棒は中/大档の**全幅剧照**。位置も大きさも別物すぎて繋げないので、
+                    // 「大図の方向へ育ちながら淡出する」転場で繋がりだけ示す。錨は大図と同じ左上。
+                    .transition(.scale(scale: 2, anchor: .topLeading).combined(with: .opacity))
+            }
 
-    /// 設計稿 2c 一段式の在場導航条：`56×42` の迷你剧照 ＋ 点名 ＋ 1 行の meta ＋ ✕。
-    private func compactHeader(_ point: ScenePoint) -> some View {
-        HStack(alignment: .center, spacing: SheetMetrics.thumbnailGap) {
-            SceneThumbnail(url: point.thumbnailURL, size: SheetMetrics.miniThumbnailSize)
-            VStack(alignment: .leading, spacing: SheetMetrics.rowTitleGap) {
-                // 一段式は 1 行しか無いので、長い点名は `…` に切らず横に流す（`MarqueeText`）。
-                MarqueeText(text: pointName(point), font: SheetFont.titleCompactPoint)
-                HStack(spacing: SheetMetrics.scaled(5)) {
-                    ThemeDot(color: themeColor, size: SheetMetrics.dotSize)
-                    Text(compactMetaText(point))
-                        .lineLimit(1)
+            VStack(
+                alignment: .leading,
+                spacing: isCompact ? SheetMetrics.rowTitleGap : SheetMetrics.titleSubtitleGap
+            ) {
+                // 標題の槽。一段式は 1 行で横に流し（`MarqueeText`）、中/大档は 2 行で折る。
+                ZStack(alignment: .topLeading) {
+                    if isCompact {
+                        MarqueeText(text: pointName(point), font: SheetFont.titleCompactPoint)
+                            .transition(.opacity)
+                    } else {
+                        Text(pointName(point))
+                            .font(SheetFont.titleLarge)
+                            .foregroundStyle(Color.anitabiInk)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .transition(.opacity)
+                    }
                 }
-                .font(SheetFont.meta)
-                .foregroundStyle(Color.anitabiInkSecondary)
+                // 副題の槽。一段式は「作品名 · EP · 距離」の 1 行、中/大档は作品 chip ＋ meta。
+                ZStack(alignment: .topLeading) {
+                    if isCompact {
+                        HStack(spacing: SheetMetrics.scaled(5)) {
+                            ThemeDot(color: themeColor, size: SheetMetrics.dotSize)
+                            Text(compactMetaText(point))
+                                .lineLimit(1)
+                        }
+                        .font(SheetFont.meta)
+                        .foregroundStyle(Color.anitabiInkSecondary)
+                        .transition(.opacity)
+                    } else {
+                        HStack(spacing: SheetMetrics.scaled(6)) {
+                            workChip
+                            if !metaText(point).isEmpty {
+                                Text(metaText(point))
+                                    .font(SheetFont.rowMeta)
+                                    .foregroundStyle(Color.anitabiInkSecondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .transition(.opacity)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !isCompact {
+                ShareLink(
+                    item: shareURL(point),
+                    subject: Text(shareTitle(point)),
+                    message: Text(shareTitle(point))
+                ) {
+                    CardCircleLabel(systemName: "square.and.arrow.up")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("分享")
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
+            }
             CardCloseButton(action: onClose)
         }
-        // 迷你条の行高は 4 枚のカードで共通（`compactBarRow`）。迷你剧照もこの高さに合わせてある。
-        .compactBarRow()
-    }
-
-    /// 設計稿 2c 两段式／三段式：標題ブロック（18px/900 ＋ 作品 chip ＋ meta）＋ 共有 ◯ ＋ ✕。
-    private func fullHeader(_ point: ScenePoint) -> some View {
-        CardHeader(title: pointName(point), titleFont: SheetFont.titleLarge, onClose: onClose) {
-            ShareLink(
-                item: shareURL(point),
-                subject: Text(shareTitle(point)),
-                message: Text(shareTitle(point))
-            ) {
-                CardCircleLabel(systemName: "square.and.arrow.up")
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("分享")
-        } subtitle: {
-            HStack(spacing: SheetMetrics.scaled(6)) {
-                workChip
-                if !metaText(point).isEmpty {
-                    Text(metaText(point))
-                        .font(SheetFont.rowMeta)
-                        .foregroundStyle(Color.anitabiInkSecondary)
-                        .lineLimit(1)
-                }
-            }
-        }
+        .stageHeaderFrame(isCompact: isCompact)
     }
 
     private func pointName(_ point: ScenePoint) -> String {
@@ -244,7 +286,9 @@ struct PointCardSheet: View {
                                     .imageScale(.large)
                                     .foregroundStyle(Color.anitabiInkFaint)
                             case .empty:
-                                ProgressView()
+                                // 読み込み中は骨架の掃過。菊花（ProgressView）より地と馴染む。
+                                Color.anitabiMediaPlaceholder
+                                    .anitabiSkeletonShimmer()
                             }
                         }
                     }

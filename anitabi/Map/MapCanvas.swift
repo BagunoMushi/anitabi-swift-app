@@ -48,6 +48,9 @@ struct MapCameraCommand: Identifiable, Equatable {
         /// 切り捨てるかで、圧暗レイヤーの頂点を渡すときは `false`。
         case fitWork([CLLocationCoordinate2D], bottomInset: CGFloat?, trimsOutliers: Bool)
         case userLocation(span: CLLocationDegrees)
+        /// 選んだ点の縦位置を**実測で**決め直す（縮尺も左右も触らない）。飛行の着地は見積もりで
+        /// 数十〜百数十 pt ずれるので、最終的な位置はここが持つ。
+        case place(CLLocationCoordinate2D, MapPointPlacement)
     }
 
     let id = UUID()
@@ -82,6 +85,33 @@ struct MapCameraCommand: Identifiable, Equatable {
             animated: animated
         )
     }
+
+    /// 選んだ点の縦位置を決め直す。動かし方（縮尺を触らない純平移の短い滑走）は
+    /// `place(_:_:on:)` が一手に持つので `animated` は取らない。
+    static func place(
+        _ coordinate: CLLocationCoordinate2D,
+        _ placement: MapPointPlacement
+    ) -> MapCameraCommand {
+        MapCameraCommand(kind: .place(coordinate, placement), animated: false)
+    }
+}
+
+/// 選んだ点を可視帯（カードの上に残った帯）のどこに置くか。
+enum MapPointPlacement {
+    /// 可視帯のど真ん中へ。**一覧・検索から選んだとき**はこれ —— 呼び出し側が「この点を見せる」と
+    /// 決めている経路なので、いちばん見やすい所へ持って行く。
+    case centered
+    /// カードに潜っているときだけ、`clearance` ぶん上へ逃がす。**地図の標注をタップしたとき**は
+    /// これ —— 画角はその人の持ち物なので、隠れているという一点だけを直す。
+    case revealed
+
+    /// 点の上に確保する帯。座標は選択気球の**尾の先端**なので、気球の背丈
+    /// （`BalloonMarkerBody.size.height` ＝ 42）ぶん空けないと頭がカードに潜ったままになる。
+    static let clearance: CGFloat = 56
+
+    /// これ未満のズレでは動かさない。飛行がほぼ決まっている点まで律儀に直すと、
+    /// 着地の直後に 1〜2pt 跳ねるだけで得が無い。
+    static let deadZone: CGFloat = 8
 }
 
 /// 署名（Apple ロゴ＋「法的情報」）をどこまで持ち上げるかの指令。Apple マップと同じで、
@@ -631,6 +661,74 @@ extension MapCanvas {
                     on: mapView,
                     animated: command.animated
                 )
+
+            case .place(let coordinate, let placement):
+                place(coordinate, placement, on: mapView)
+            }
+        }
+
+        /// 選んだ点を**実測で**縦位置に置き直す。ここが最終的な位置の決定権を持つ ——
+        /// 飛行（`.flyToPoint`）の `verticalOffset` は設計稿の比率からの見積もりで、点ごとに
+        /// 変わる縮尺・署名の余白・キーボードの有無で数十〜百数十 pt ずれるため、
+        /// 「だいたい寄せる」までしか任せない。
+        ///
+        /// 動かし方は「今の視口を地図単位で dy だけずらす」——`visibleMapRect` の取得と設定は
+        /// 対称なので（`setCenter(centerCoordinate)` が 1pt も動かないのと同じ理屈）、
+        /// `layoutMargins` を MapKit がどう解釈していようと結果は狂わない。縮尺も左右も触らない。
+        ///
+        /// **`setCenter(animated: true)` では動かせない** —— 署名のために `layoutMargins.bottom` を
+        /// 大きく取っているこの地図では 70pt 頼むと 185pt 動き（`UIView.animate` で包んでも同じ）、
+        /// `setRegion(animated: true)` は縮尺まで変えてしまう。どちらも実測で確認済み。
+        /// なので同寸の `visibleMapRect` を dy だけずらして `setVisibleMapRect(animated:)` に渡す ——
+        /// 純平移なら「大きな寄りが 1 コマで切り替わる」あの経路の弱点も踏まない。
+        /// 一帧で切らずに短く滑らせるのは、飛行やカードの上昇の**続き**に見せるため
+        /// （最後の一手だけ剪辑になると、そこまでの滑りが全部無駄になる）。
+        private func place(
+            _ coordinate: CLLocationCoordinate2D,
+            _ placement: MapPointPlacement,
+            on mapView: MKMapView
+        ) {
+            // カードの上縁は**実測だけ**を使う。見積もりで動かすと、外したときに
+            // 「勝手に動いた」という印象だけが残る。
+            guard let lift = parent.attributionLift.rawLift(in: mapView) else { return }
+            let cardTop = mapView.bounds.maxY - lift
+            let currentY = mapView.convert(coordinate, toPointTo: mapView).y
+
+            let targetY: CGFloat
+            switch placement {
+            case .centered:
+                // カードの上に残った帯のど真ん中。安全区（Dynamic Island）に潜らないよう下限を置く。
+                targetY = max(cardTop / 2, mapView.safeAreaInsets.top + MapPointPlacement.clearance)
+                // 飛行が既に決まっている点はここで止まる（ほとんどの点がこちら）。
+                guard abs(currentY - targetY) > MapPointPlacement.deadZone else { return }
+            case .revealed:
+                // 隠れているときだけ、足りないぶんだけ。画角はその人の持ち物なので奪わない。
+                let ceiling = cardTop - MapPointPlacement.clearance
+                guard currentY > ceiling else { return }
+                targetY = ceiling
+            }
+
+            // 画面 pt → 地図単位は今の縮尺で測る（縮尺は変えないのでこれで正しい）。
+            let shift = currentY - targetY
+            let midX = mapView.bounds.midX
+            let midY = mapView.bounds.midY
+            let here = MKMapPoint(
+                mapView.convert(CGPoint(x: midX, y: midY), toCoordinateFrom: mapView)
+            )
+            let shifted = MKMapPoint(
+                mapView.convert(CGPoint(x: midX, y: midY + shift), toCoordinateFrom: mapView)
+            )
+
+            var rect = mapView.visibleMapRect
+            rect.origin.y += shifted.y - here.y
+            // easeOut：補正は既に動いていた絵の「減速して停まる」端に当たる。立ち上がりを
+            // 付けると二度目の発進に見える。
+            UIView.animate(
+                withDuration: 0.3,
+                delay: 0,
+                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                mapView.setVisibleMapRect(rect, animated: true)
             }
         }
 
@@ -639,7 +737,11 @@ extension MapCanvas {
                 mapView.setRegion(region, animated: false)
                 return
             }
-            animateCamera { mapView.setRegion(region, animated: true) }
+            animateCamera(
+                duration: MapCameraPlanner.flightDuration(from: fullBoundsRegion(of: mapView), to: region)
+            ) {
+                mapView.setRegion(region, animated: true)
+            }
         }
 
         /// 署名のために `layoutMargins.bottom` へ入れた量をカメラ指令からだけ差し引く。**定数では
@@ -691,14 +793,23 @@ extension MapCanvas {
                 mapView.setVisibleMapRect(fitted, animated: false)
                 return
             }
-            animateCamera { mapView.setVisibleMapRect(fitted, animated: true) }
+            animateCamera(
+                duration: MapCameraPlanner.flightDuration(
+                    from: fullBoundsRegion(of: mapView),
+                    to: MKCoordinateRegion(fitted)
+                )
+            ) {
+                mapView.setVisibleMapRect(fitted, animated: true)
+            }
         }
 
-        /// MKMapView 既定のカメラ移動は 0.3 秒ほどで、Web 版の 1.2 秒より忙しない。
-        /// UIView のアニメーション文脈で包むと MapKit がその duration を拾う。
-        private func animateCamera(_ body: @escaping () -> Void) {
+        /// MKMapView 既定のカメラ移動は 0.3 秒ほど固定で、道のりに関わらず同じ忙しなさになる。
+        /// UIView のアニメーション文脈で包むと MapKit がその duration を拾うので、
+        /// `MapCameraPlanner.flightDuration`（道のり比例）をここへ通す。
+        /// **`setCenter` はこれに載せてはいけない** —— 理由は `place` に。
+        private func animateCamera(duration: TimeInterval, _ body: @escaping () -> Void) {
             UIView.animate(
-                withDuration: MapCameraPlanner.flyDuration,
+                withDuration: duration,
                 delay: 0,
                 options: [.curveEaseInOut],
                 animations: body

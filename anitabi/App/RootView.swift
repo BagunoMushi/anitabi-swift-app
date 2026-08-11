@@ -120,6 +120,8 @@ struct RootView: View {
     /// （もう一度合わせたければ「全部点位」を押せる）。
     @State private var workFitFollowsSheet = false
     @State private var workFitTask: Task<Void, Never>?
+    /// 選んだ地標の縦位置を実測で置き直す補正の待ち（`schedulePlacement`）。
+    @State private var revealTask: Task<Void, Never>?
     /// 直近のフィットで使った可視カードの上縁。帯が実質変わっていない档移動を弾くのに使う。
     @State private var lastWorkFitCardTop: CGFloat?
 
@@ -233,7 +235,7 @@ struct RootView: View {
                 baseStyle: baseStyle,
                 attributionLift: attributionLift,
                 droppedPinCoordinate: router.droppedPin?.coordinate,
-                onSelectPoint: { router.selectPoint($0) },  // 地図経由は镜头を動かさない
+                onSelectPoint: { selectPointFromMap($0) },  // 地図経由は镜头を動かさない
                 onSelectWork: { router.focusWork(id: $0) },
                 onTapDimRegion: { router.backToBrowse() },
                 onTapBlank: { router.closePointCard() },
@@ -538,18 +540,23 @@ struct RootView: View {
                 expandedDetent: maxDetent(.home),
                 initialDetent: initialDetent(.home),
                 onSelectPoint: { selectPointFromList($0) },
-                onFocusCity: { focusCity($0) }
+                onFocusCity: { city, collapsesSheet in focusCity(city, collapsesSheet: collapsesSheet) }
             )
         case .work(let selection):
+            // `.equatable()` が肝 —— このカードは点数の多い作品で重く、拖动中は毎フレーム
+            // ここが作り直される（`sheetGeometry` が毎フレーム変わるため）。値が同じなら
+            // body ごと飛ばさせる（理由と安全性は `WorkCardSheet` の `Equatable` に）。
             WorkCardSheet(
                 store: store,
                 workID: selection.id,
+                dataGeneration: store.dataGeneration,
                 selectedPointID: router.pointCard?.id,
                 isMinimized: stage(of: entry) == .compact,
                 onSelectPoint: selectPointFromList,
                 onClose: { router.closeWorkCard() },
                 onRefit: { refitWork(selection.id) }
             )
+            .equatable()
         case .point(let selection):
             PointCardSheet(
                 store: store,
@@ -644,6 +651,7 @@ struct RootView: View {
         // 自分で地図を動かした人の画角は奪わない —— これから落ちる档の変化で枠へ寄せ直すと、
         // パンし始めた瞬間に镜头が戻ってしまう。
         stopWorkFitFollowing()
+        stopPlacing()
         withAnimation(.anitabiSpring) {
             detent = top.layer.minDetent(measured: compactHeights[top.layer])
         }
@@ -746,15 +754,59 @@ struct RootView: View {
     /// この pt 以上カードの上縁が動いたときだけ枠を置き直す。
     private static let workRefitThreshold: CGFloat = 24
 
-    /// 一覧から地標を選んだ経路だけ镜头を寄せる。カードに隠れないよう半分ぶん上へ逃がす。
+    /// 一覧・検索から地標を選んだ経路だけ镜头を寄せる。着地は**可視帯のど真ん中**（`.centered`）。
+    ///
+    /// 飛行に渡す上寄せ量は見積もりのままで構わない —— 最終的な縦位置は着地後の実測が決める。
+    /// **`windowSize` は使わない**：あれは検索でキーボードが出ている間その高さぶん縮むので、
+    /// 検索から選んだ点だけ上寄せが 4 割ほど足りず、カードの縁に貼り付いていた。
     private func selectPointFromList(_ point: ScenePoint) {
         router.selectPoint(point)
-        command = .flyTo(point, verticalOffset: windowSize.height * SheetLayout.pointFraction / 2)
+        command = .flyTo(
+            point,
+            verticalOffset: DesignScale.screenHeight * SheetLayout.pointFraction / 2
+        )
+        schedulePlacement(
+            point, .centered,
+            after: .milliseconds(Int(MapCameraPlanner.flyDuration * 1000) + 120)
+        )
+    }
+
+    /// 地図の標注から選んだ経路。**镜头は動かさない** —— 画角はその人の持ち物なので、寄り引きも
+    /// 左右も奪わない。ただしカードは点より高く立ち上がることがある（地標カード 0.531 は作品カード
+    /// 0.417 より高い）ので、点が潜ってしまったぶんだけ後から流す。
+    private func selectPointFromMap(_ point: ScenePoint) {
+        router.selectPoint(point)
+        schedulePlacement(point, .revealed, after: .milliseconds(360))
+    }
+
+    /// カードが停まってから点の位置を実測して置き直す。**待つのが肝** ——
+    /// `PresentationDetent` は吸着で即変わるが、可視カードはそこからバネで動くので、早く測ると
+    /// 古い上縁で判断してしまう（`scheduleWorkRefit` と同じ理屈・同じ待ち）。
+    private func schedulePlacement(
+        _ point: ScenePoint,
+        _ placement: MapPointPlacement,
+        after delay: Duration
+    ) {
+        revealTask?.cancel()
+        revealTask = Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            // 待っている間にカードが差し替わった／閉じたなら、もう置き直す相手が居ない。
+            guard !Task.isCancelled, router.pointCard?.id == point.id else { return }
+            command = .place(point.coordinate, placement)
+        }
+    }
+
+    /// 自分で地図を動かし始めた人の画角は奪わない —— 待機中の補正は捨てる。
+    private func stopPlacing() {
+        revealTask?.cancel()
+        revealTask = nil
     }
 
     /// 都市タイル／検索の都市行 tap の镜头移動。`CityTile.radius` は集計円の半径でしかないので、
     /// 2.4 倍して市域全体が収まるくらいの見開きにする（経験値）。
-    private func focusCity(_ city: CityTile) {
+    /// `collapsesSheet` はブラウズ経路だけ true —— 検索から都市を選んだときは検索態のまま
+    /// 「この都市の作品」を読ませるので、卡片は持ち上げたまま裏で镜头だけ飛ばす。
+    private func focusCity(_ city: CityTile, collapsesSheet: Bool = true) {
         let latDelta = min(max(city.radius * 2.4 / 111_320, 0.02), 4)
         let lngDelta = latDelta / max(cos(city.center.latitude * .pi / 180), 0.2)
         command = .region(
@@ -763,6 +815,7 @@ struct RootView: View {
                 span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lngDelta)
             )
         )
+        guard collapsesSheet else { return }
         // Apple マップ同様、都市へ寄せたら sheet は半开に落として地図を見せる。
         withAnimation(.anitabiSpring) {
             detent = initialDetent(.home)

@@ -29,6 +29,16 @@ struct ViewportWorkChips: View {
                     Text("试试:")
                         .font(SheetFont.meta)
                         .foregroundStyle(Color.anitabiInkTertiary)
+                    if suggestions.isEmpty {
+                        // データ首載中は推荐作品もまだ無い。行を空けたままにせず chip の骨架を置く
+                        //（首页の骨架屏と同じ空窗にだけ見える）。
+                        HStack(spacing: SheetMetrics.scaled(6)) {
+                            ForEach(0..<3, id: \.self) { _ in
+                                SkeletonBar(width: 76, height: 26)
+                            }
+                        }
+                        .anitabiSkeletonShimmer()
+                    }
                     ForEach(suggestions, id: \.self) { id in
                         chip(for: id, count: nil)
                     }

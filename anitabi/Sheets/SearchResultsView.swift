@@ -18,7 +18,9 @@ struct SearchResultsView: View {
     /// キー入力ごとの生値。防抖は本 View 内で完結させる。
     var query: String
     var onSelectPoint: (ScenePoint) -> Void
-    var onFocusCity: (CityTile) -> Void
+    /// 都市を**選ぶ**（web 版と同じ）：都市名が検索欄に残り、検索態のまま下に
+    /// 「この都市の作品」が出る。畳んで飛ぶだけの旧挙動とは別物（HomeSheet.pickCity）。
+    var onPickCity: (CityTile) -> Void
     /// tap 後に検索状態を畳む（テキストクリア＋フォーカス解除）。HomeSheet 側の関数を渡してもらう。
     var onFinishSelection: () -> Void
 
@@ -34,10 +36,7 @@ struct SearchResultsView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
                 if trimmedQuery.isEmpty {
-                    CityGridSection(cities: store.cities) { city in
-                        onFocusCity(city)
-                        onFinishSelection()
-                    }
+                    CityGridSection(cities: store.cities, onSelect: onPickCity)
                     WorkBrowseSection(store: store, selectedTab: $browseTab) { id in
                         router.focusWork(id: id)
                         onFinishSelection()
@@ -78,11 +77,25 @@ struct SearchResultsView: View {
         return (store.matchingCities(trimmedQuery), works, points)
     }
 
+    /// 検索欄の文字が都市名**そのもの**なら、その都市を「選択中」として扱う ——
+    /// 都市タイル／都市行を選んだ直後がこれ（`HomeSheet.pickCity` が都市名を書き込む）。
+    /// 手で丸ごと打ち込んだ場合も同じ扱いになるが、それは望ましい一致。
+    private var pickedCity: CityTile? {
+        let needle = trimmedQuery.lowercased()
+        guard !needle.isEmpty else { return nil }
+        return store.cities.first { $0.name.lowercased() == needle }
+    }
+
     @ViewBuilder
     private var resultsContent: some View {
-        let (cities, works, points) = results
+        let (allCities, works, points) = results
+        // 選択中の都市はすぐ上に作品一覧が出ているので、都市の節からは省く（同じ行の二度書き）。
+        let cities = allCities.filter { $0.id != pickedCity?.id }
 
-        if cities.isEmpty, works.isEmpty, points.isEmpty {
+        if let city = pickedCity {
+            cityWorksSection(city)
+        }
+        if pickedCity == nil, cities.isEmpty, works.isEmpty, points.isEmpty {
             emptyState
         } else {
             if !cities.isEmpty {
@@ -118,6 +131,25 @@ struct SearchResultsView: View {
         }
     }
 
+    /// 選択中の都市の圏内に地標を持つ作品（点数の多い順）。web 版で都市を選んだときに出る
+    /// 一覧の移植。行は作品ブラウズと同じ部品で、tap で作品カードへ（そこで検索は畳む）。
+    @ViewBuilder
+    private func cityWorksSection(_ city: CityTile) -> some View {
+        let entries = store.worksInCity(city)
+        if !entries.isEmpty {
+            resultSection("「\(city.name)」的作品") {
+                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                    if let bangumi = store.bangumi(id: entry.id) {
+                        if index > 0 {
+                            SheetHairline(leadingInset: SheetMetrics.searchCoverSize.width + SheetMetrics.thumbnailGap)
+                        }
+                        workRow(bangumi)
+                    }
+                }
+            }
+        }
+    }
+
     /// 設計稿 1b の節見出しは首页の節見出しより一段弱い「仕分けラベル」。
     /// その下は一覧カードだが角丸だけ 16（設計稿 1b）。
     private func resultSection<Content: View>(
@@ -137,8 +169,7 @@ struct SearchResultsView: View {
 
     private func cityRow(_ city: CityTile) -> some View {
         Button {
-            onFocusCity(city)
-            onFinishSelection()
+            onPickCity(city)
         } label: {
             HStack(spacing: SheetMetrics.thumbnailGap) {
                 Image(systemName: "building.2")

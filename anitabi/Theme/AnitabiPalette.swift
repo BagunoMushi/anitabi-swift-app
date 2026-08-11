@@ -113,6 +113,9 @@ extension Color {
     /// 剧照が無い／読み込み中の器。設計稿の斜線プレースホルダに相当する地。
     static let anitabiMediaPlaceholder = dynamic(light: Raw.ink.alpha(0.09), dark: .white.alpha(0.10))
 
+    /// 骨架屏（スケルトン）を掃く高光。`anitabiMediaPlaceholder` の上に重ねる前提の白。
+    static let anitabiSkeletonHighlight = dynamic(light: .white.alpha(0.55), dark: .white.alpha(0.14))
+
     /// 画像の上に重ねる EP／タイムコード徽章。設計稿 `rgba(19,46,26,.85)` ＋ `#D4FFD5`。
     static let anitabiMediaBadge = dynamic(light: Raw.ink.alpha(0.85), dark: .black.alpha(0.62))
     static let anitabiMediaBadgeText = dynamic(light: Raw.mint, dark: Raw.mint)

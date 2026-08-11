@@ -15,8 +15,32 @@ enum MapCameraPlanner {
 
     /// 作品フィットの上限。これ以上寄ると「作品の広がり」ではなく 1 点の景色になる。
     static let maxFitZoom: Double = 17
-    /// Web 版の flyTo と同じ体感（約 1.2 秒）。
+    /// 飛行時間の**上限**（Web 版 flyTo の体感 ≒1.2 秒）。実際の時間は `flightDuration` が
+    /// 道のりに合わせて縮める —— 隣の点への 200m にも 1.2 秒掛けると「押したのに動かない」
+    /// 間だけが残る（動きの量は入力の量に釣り合わせる）。
     static let flyDuration: TimeInterval = 1.2
+    /// 飛行時間の下限。これ未満だと easeInOut の立ち上がりが潰れて 1 コマ切替に見える。
+    static let minFlyDuration: TimeInterval = 0.35
+
+    /// 道のり（今の視口 → 目標視口）から飛行時間を決める。道のりは
+    /// **パンの「画面何枚ぶん」＋ズームの「倍率何段ぶん」**の和 —— Mapbox の flyTo と同じ考え方で、
+    /// 遠い都市への飛行は上限いっぱい（映画的に）、隣の点への跳びは 0.4〜0.6 秒（機敏に）。
+    static func flightDuration(
+        from current: MKCoordinateRegion,
+        to target: MKCoordinateRegion
+    ) -> TimeInterval {
+        let currentSpan = max(current.span.longitudeDelta, 1e-9)
+        let targetSpan = max(target.span.longitudeDelta, 1e-9)
+        // ズームの段数差。span は 1 段ごとに半分になるので log2 がそのまま段数。
+        let zoomTravel = abs(log2(currentSpan / targetSpan))
+        // パンの画面数。広い方の視口で測る —— 飛行は一度引いてから寄るので、
+        // 巡航高度での横移動が体感の道のりになる。
+        let panTravel = hypot(
+            target.center.longitude - current.center.longitude,
+            target.center.latitude - current.center.latitude
+        ) / max(currentSpan, targetSpan)
+        return min(flyDuration, max(minFlyDuration, 0.35 + 0.12 * (panTravel + zoomTravel)))
+    }
 
     // MARK: ズーム ↔ 範囲
 

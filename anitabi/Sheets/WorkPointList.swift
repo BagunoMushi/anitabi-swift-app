@@ -6,85 +6,164 @@
 //  選中行は系统の accent ではなく**作品の主題色の枠**で示す（設計稿 1c）——
 //  作品ごとの色がこの App の識別子。
 //
+//  一覧は**組ごとに束ねず、行 1 つを 1 要素まで平らにして**呼び出し側の `LazyVStack` へ渡す。
+//  懒容器が惰性化するのは直接の子だけなので、組（＝`SheetListCard` 1 枚）で渡すと 600 点の
+//  作品では 600 行が丸ごと構築・布局される。白い薄膜の面は `sheetListSegment` が行ごとに分担する。
+//
 
 import SwiftUI
 
-struct WorkPointList: View {
-    let store: AnitabiStore
-    let groups: [PointGroup]
-    /// 组头を出すか。「folder 组数>1 も ep も無い」場合は呼び出し側が false にして平铺表示にする。
-    let showsHeaders: Bool
-    @Binding var collapsedGroupIDs: Set<String>
-    let selectedPointID: String?
-    /// 選中行の描边に使う作品の主題色。
-    let themeColor: Color
-    var onSelectPoint: (ScenePoint) -> Void
+// MARK: - 平らにした一覧
 
-    /// 剧照 50 ＋ 間隔 10。分隔線はここまで寄せる。
-    private static var textInset: CGFloat { SheetMetrics.pointThumbnailSize.width + SheetMetrics.thumbnailGap }
+/// 一覧の 1 要素。`LazyVStack` の直接の子になるのはこの粒度。
+enum WorkListElement: Identifiable {
+    case header(WorkListHeader)
+    case row(WorkListRow)
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: showsHeaders ? SheetMetrics.sectionSpacing : 0) {
-            ForEach(groups) { group in
-                if showsHeaders {
-                    VStack(alignment: .leading, spacing: SheetMetrics.headerSpacing) {
-                        groupHeader(group)
-                        if !collapsedGroupIDs.contains(group.id) {
-                            SheetListCard { pointRows(group.points) }
-                        }
-                    }
-                } else {
-                    SheetListCard { pointRows(group.points) }
-                }
-            }
+    var id: String {
+        switch self {
+        case .header(let header): "h:\(header.id)"
+        case .row(let row): "r:\(row.id)"
         }
     }
+}
 
-    /// 設計稿 2b：`组名 12.5/900` ＋ `N 个点位 11px` ＋ 右端に折り畳みの `⌄`。
-    private func groupHeader(_ group: PointGroup) -> some View {
-        let collapsed = collapsedGroupIDs.contains(group.id)
-        return Button {
-            withAnimation(.anitabiSpring) {
-                if collapsed { collapsedGroupIDs.remove(group.id) } else { collapsedGroupIDs.insert(group.id) }
+/// 組の見出し 1 つぶん。
+struct WorkListHeader {
+    /// `PointGroup.id`。折り畳みの記憶もこれで引く。
+    let id: String
+    let name: String
+    let pointCount: Int
+    let isCollapsed: Bool
+    /// 先頭の組か（＝上に節間隔を空けない。控件行との間隔は呼び出し側が持つ）。
+    let isFirst: Bool
+    /// 下に行が続くか（畳んでいる組は続かないので、見出しの下余白も要らない）。
+    let hasRows: Bool
+}
+
+/// 一覧の 1 行ぶん。
+struct WorkListRow: Identifiable {
+    let point: ScenePoint
+    /// 同じ組の直前の行の id（先頭なら nil）。細線を引くかの判定に使う。
+    /// **選択中の点は持たせない** —— 持たせると点を選ぶたびに全要素を組み直すことになる。
+    let previousID: String?
+    /// 組の中での位置（面のどこを描くか）。
+    let segment: SheetListSegment
+
+    var id: String { point.id }
+}
+
+extension WorkListElement {
+    /// 組の配列を行単位まで平らにする。畳んでいる組は見出しだけを残す。
+    static func flatten(
+        _ groups: [PointGroup],
+        showsHeaders: Bool,
+        collapsedGroupIDs: Set<String>
+    ) -> [WorkListElement] {
+        var elements: [WorkListElement] = []
+        elements.reserveCapacity(groups.reduce(groups.count) { $0 + $1.points.count })
+
+        for (index, group) in groups.enumerated() {
+            let isCollapsed = showsHeaders && collapsedGroupIDs.contains(group.id)
+            let points = isCollapsed ? [] : group.points
+
+            if showsHeaders {
+                elements.append(.header(WorkListHeader(
+                    id: group.id,
+                    name: group.name,
+                    pointCount: group.points.count,
+                    isCollapsed: isCollapsed,
+                    isFirst: index == 0,
+                    hasRows: !points.isEmpty
+                )))
             }
-        } label: {
+
+            for (offset, point) in points.enumerated() {
+                elements.append(.row(WorkListRow(
+                    point: point,
+                    previousID: offset == 0 ? nil : points[offset - 1].id,
+                    segment: .at(offset, count: points.count)
+                )))
+            }
+        }
+        return elements
+    }
+}
+
+// MARK: - 組の見出し
+
+/// 設計稿 2b：`组名 12.5/900` ＋ `N 个点位 11px` ＋ 右端に折り畳みの `⌄`。
+struct WorkPointGroupHeader: View {
+    let header: WorkListHeader
+    var onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
             HStack(spacing: SheetMetrics.scaled(6)) {
-                Text(group.name)
+                Text(header.name)
                     .font(SheetFont.sectionTitle)
                     .foregroundStyle(Color.anitabiInk)
                     .lineLimit(1)
-                Text("\(group.points.count) 个点位")
+                Text("\(header.pointCount) 个点位")
                     .font(SheetFont.meta)
                     .foregroundStyle(Color.anitabiInkTertiary)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
                     .font(SheetFont.meta.weight(.semibold))
                     .foregroundStyle(Color.anitabiInkFaint)
-                    .rotationEffect(.degrees(collapsed ? -90 : 0))
+                    .rotationEffect(.degrees(header.isCollapsed ? -90 : 0))
             }
             .padding(.horizontal, SheetMetrics.headerInset)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private func pointRows(_ points: [ScenePoint]) -> some View {
-        ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
-            let isSelected = point.id == selectedPointID
-            // 選中行は自前の枠を持つので、その上下には細線を引かない（設計稿 1c と同じ見え方）。
-            if index > 0, !isSelected, points[index - 1].id != selectedPointID {
-                SheetHairline(leadingInset: Self.textInset)
-            }
-            Button { onSelectPoint(point) } label: {
-                WorkPointRow(store: store, point: point, isSelected: isSelected, themeColor: themeColor)
-            }
-            .buttonStyle(.plain)
-        }
+        // 組と組の間（設計稿の節間隔）。先頭の組の上は控件行が持つ。
+        .padding(.top, header.isFirst ? 0 : SheetMetrics.sectionSpacing)
+        .padding(.bottom, header.hasRows ? SheetMetrics.headerSpacing : 0)
     }
 }
 
-// MARK: - 点行
+// MARK: - 行
+
+/// 一覧の 1 行（細線 ＋ 押せる行 ＋ その行が受け持つ面）。
+struct WorkPointCell: View {
+    let store: AnitabiStore
+    let row: WorkListRow
+    let selectedPointID: String?
+    let themeColor: Color
+    var onSelect: (ScenePoint) -> Void
+
+    /// 剧照 50 ＋ 間隔 10。分隔線はここまで寄せる。
+    private static var textInset: CGFloat {
+        SheetMetrics.pointThumbnailSize.width + SheetMetrics.thumbnailGap
+    }
+
+    private var isSelected: Bool { row.point.id == selectedPointID }
+
+    /// 選中行は自前の枠を持つので、その上下には細線を引かない（設計稿 1c と同じ見え方）。
+    private var showsHairline: Bool {
+        guard let previousID = row.previousID else { return false }
+        return !isSelected && previousID != selectedPointID
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if showsHairline {
+                SheetHairline(leadingInset: Self.textInset)
+            }
+            Button { onSelect(row.point) } label: {
+                WorkPointRow(
+                    store: store,
+                    point: row.point,
+                    isSelected: isSelected,
+                    themeColor: themeColor
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .sheetListSegment(row.segment)
+    }
+}
 
 struct WorkPointRow: View {
     let store: AnitabiStore

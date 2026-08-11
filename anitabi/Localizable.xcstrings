@@ -40,6 +40,9 @@
         }
       }
     },
+    "「%@」的作品" : {
+
+    },
     "%@ · %lld 个点位" : {
       "comment" : "Recently viewed work; %1 is the title, %2 is its spot count",
       "extractionState" : "manual",
@@ -815,6 +818,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "写真ピン"
+          }
+        }
+      }
+    },
+    "加载中" : {
+      "comment" : "Accessibility label for skeleton loading placeholders in sheets",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込み中"
           }
         }
       }

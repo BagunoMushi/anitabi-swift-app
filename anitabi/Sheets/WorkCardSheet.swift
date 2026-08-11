@@ -6,6 +6,10 @@
 //  「全部点位」＋✕ の 1 行）にして残りを地図に譲り、两段式以上は標題ブロックに戻る。
 //  「全部点位」が一段式だけなのは、中/大档では地図が隠れていて押しても何も見えないから。
 //
+//  点数の多い作品（600 点超）を開いたときに画面全体が固まらないよう、このカードは 2 つの約束を
+//  守る —— **一覧は行単位で `LazyVStack` に載せる**（`WorkListElement`）ことと、**分组を body で
+//  組み直さない**こと（`listing`）。どちらも「1 行ぶんの仕事 × 600」を毎フレーム走らせないため。
+//
 
 import SwiftUI
 
@@ -13,6 +17,9 @@ struct WorkCardSheet: View {
 
     let store: AnitabiStore
     let workID: Int
+    /// `store` のデータ世代。**視図の値として持つ**のが肝 —— 名前・劇照は点数を変えずに後から
+    /// 合流するので、これが無いと下の `==` が「変わっていない」と誤判定してカードが古いまま固まる。
+    let dataGeneration: Int
     /// 現在开いている地標カードの id。同じ作品内の点なら一覧行をハイライトする。
     var selectedPointID: String?
     /// 最小档に落ちているか（設計稿 2b 一段式の身份条へ切り替える）。
@@ -28,134 +35,246 @@ struct WorkCardSheet: View {
     @Environment(\.sheetBottomInset) private var sheetBottomInset
 
     @State private var collapsedGroupIDs: Set<String> = []
+    @State private var listing = WorkListing()
     /// 外链胶囊は router を介さず、このカード自身で開閉する。
     @State private var safariItem: SafariItem?
 
     private var bangumi: BangumiLite? { store.bangumi(id: workID) }
-    private var points: [ScenePoint] { store.pointsByBangumi[workID] ?? [] }
-    private var themeColor: Color { store.color(forBangumi: workID) }
 
-    // MARK: 分组の出し分け
+    // MARK: - 分组の計算結果（body では組み直さない）
 
-    private var hasAnyEpisode: Bool {
-        points.contains { $0.ep?.nilIfBlank != nil }
+    /// 一覧まわりの派生値。**すべて `rebuild()` でしか作らない** —— 素直に computed property に
+    /// すると 1 回の body 評価で 600 点の全量分组が 3〜4 回走り、sheet を拖动する間それが
+    /// 毎フレームになる（拖动中は `RootView` の中身の高さが毎フレーム変わるため）。
+    private struct WorkListing {
+        var groups: [PointGroup] = []
+        /// 行単位まで平らにした一覧（`LazyVStack` の直接の子になる粒度）。
+        var elements: [WorkListElement] = []
+        /// 組頭と分组控件を出すか。folder 组数が 2 以上、または ep を持つ点が 1 つでもあるとき。
+        /// 両方とも無ければ（＝単一フォルダで話数も無い）平铺一覧に落とす。
+        var showsGroupingControls = false
+        var hasAnyEpisode = false
+        var pointCount = 0
+        var name = ""
+        var themeColor: Color = .anitabiNeutralTheme
     }
 
-    private var folderGroups: [PointGroup] {
-        store.groupedPoints(for: workID, mode: .folder)
+    /// これが変わったときだけ組み直す。
+    private struct RebuildKey: Equatable {
+        var workID: Int
+        var mode: WorkGroupingMode
+        var generation: Int
     }
 
-    /// folder 组数が 2 以上、または ep を持つ点が 1 つでもあるときだけ分组控件を出す。
-    /// 両方とも無ければ（＝作品全体が単一のフォルダで話数も無い）平铺一覧に落とす。
-    private var showsGroupingControls: Bool {
-        folderGroups.count > 1 || hasAnyEpisode
+    private var rebuildKey: RebuildKey {
+        RebuildKey(workID: workID, mode: groupMode, generation: dataGeneration)
     }
 
-    /// ep が 1 つも無い作品では `groupMode` が過去に「話数」を指していても folder に強制する
-    /// （@AppStorage は全作品共有なので、ここを書き換えて次の作品の選択を壊さないようにする）。
-    private var effectiveMode: WorkGroupingMode {
-        hasAnyEpisode ? groupMode : .folder
+    /// 分组を 1 回だけ回して派生値を全部作る。`groupedPoints` は**多くとも 1 回**しか呼ばない。
+    private func rebuild() {
+        let points = store.pointsByBangumi[workID] ?? []
+        let hasAnyEpisode = points.contains { $0.ep?.nilIfBlank != nil }
+
+        var next = WorkListing()
+        next.hasAnyEpisode = hasAnyEpisode
+        next.pointCount = points.count
+        next.name = store.name(forBangumi: workID)
+        next.themeColor = store.color(forBangumi: workID)
+
+        // ep が 1 つも無い作品では `groupMode` が過去に「話数」を指していても folder に落とす
+        // （@AppStorage は全作品共有なので、ここを書き換えて次の作品の選択を壊さないようにする）。
+        if hasAnyEpisode, groupMode == .episode {
+            next.groups = store.groupedPoints(for: workID, mode: .episode)
+            // 話数モードに入れている時点で ep はある＝控件は必ず出る。
+            next.showsGroupingControls = true
+        } else {
+            next.groups = store.groupedPoints(for: workID, mode: .folder)
+            next.showsGroupingControls = next.groups.count > 1 || hasAnyEpisode
+        }
+
+        // 初期状態は常に全展开（折叠は「全部折叠」ボタンから明示的に行う）。
+        collapsedGroupIDs = []
+        next.elements = WorkListElement.flatten(
+            next.groups,
+            showsHeaders: next.showsGroupingControls,
+            collapsedGroupIDs: []
+        )
+        listing = next
     }
 
-    private var groups: [PointGroup] {
-        showsGroupingControls ? store.groupedPoints(for: workID, mode: effectiveMode) : folderGroups
+    /// 折り畳みの変更は**同じトランザクションで**一覧も組み直す —— `onChange` に回すと
+    /// 別トランザクションになって、行の出入りがバネに乗らない。
+    private func setCollapsed(_ ids: Set<String>) {
+        withAnimation(.anitabiSpring) {
+            collapsedGroupIDs = ids
+            listing.elements = WorkListElement.flatten(
+                listing.groups,
+                showsHeaders: listing.showsGroupingControls,
+                collapsedGroupIDs: ids
+            )
+        }
     }
 
     private var isFullyExpanded: Bool { collapsedGroupIDs.isEmpty }
 
+    /// データ完走前にこのカードへ深链で入った場合だけ骨架屏を出す。`geometryOnly` は点数こそ
+    /// あるが作品名・点名が空文字なので、実物の一覧を出すと白紙の行が並ぶ —— 名前が来るまで骨架。
+    private var isLoadingSkeleton: Bool {
+        guard listing.pointCount == 0 || listing.name.isEmpty else { return false }
+        switch store.phase {
+        case .empty, .geometryOnly: return true
+        case .complete, .failed: return false
+        }
+    }
+
+    // MARK: - 本体
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                header
-                    // 最小档は**一段式の身份条の実高**。中/大档では頭部が別の形に変わるので、
-                    // 一段式の複製を隠して置き、常にそちらを測る。
-                    .overlay(alignment: .top) { compactHeader.compactHeightProbe(.work) }
+                header(isCompact: isMinimized)
+                    // 最小档は**一段式の身份条の実高**。中/大档では頭部の余白と部品が変わるので、
+                    // 一段式の姿の複製を隠して置き、常にそちらを測る。
+                    .overlay(alignment: .top) { header(isCompact: true).compactHeightProbe(.work) }
 
-                LazyVStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
-                    infoCard
-                    if showsGroupingControls {
-                        groupingControlsRow
-                    }
-                    WorkPointList(
-                        store: store,
-                        groups: groups,
-                        showsHeaders: showsGroupingControls,
-                        collapsedGroupIDs: $collapsedGroupIDs,
-                        selectedPointID: selectedPointID,
-                        themeColor: themeColor,
-                        onSelectPoint: onSelectPoint
-                    )
-                    externalLinksRow
-                    contributorRow
+                if isLoadingSkeleton {
+                    WorkCardSkeleton()
+                        .collapsedInCompactStage(isMinimized ? .compact : .medium)
+                        .transition(.opacity)
+                } else {
+                    workCardBody
+                        .transition(.opacity)
                 }
-                .collapsedInCompactStage(isMinimized ? .compact : .medium)
             }
             .scenePadding(.horizontal)
             .sheetScrollBottomPadding(sheetBottomInset)
+            .animatesSheetStage(isMinimized ? .compact : .medium)
+            .animation(.anitabiSpring, value: isLoadingSkeleton)
         }
-        .onAppear { resetCollapseState() }
-        .onChange(of: groupMode) { _, _ in resetCollapseState() }
+        .onChange(of: rebuildKey, initial: true) { _, _ in rebuild() }
         .sheet(item: $safariItem) { item in SafariSheet(url: item.url) }
+    }
+
+    // **`spacing: 0`** ―― 子には一覧の行も直接混ざるので、節と節の間隔は
+    // 各要素が自分で持つ。ここに器を 1 枚でも挟むと惰性化が効かなくなる。
+    private var workCardBody: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            infoCard
+                .padding(.bottom, SheetMetrics.sectionSpacing)
+
+            if listing.showsGroupingControls {
+                groupingControlsRow
+                    .padding(.bottom, SheetMetrics.sectionSpacing)
+            }
+
+            // 一覧の本体。組で束ねず 1 行 1 要素で渡すので、視口に入った行しか作られない。
+            ForEach(listing.elements) { element in
+                switch element {
+                case .header(let groupHeader):
+                    WorkPointGroupHeader(header: groupHeader) {
+                        toggleGroup(groupHeader.id)
+                    }
+                case .row(let row):
+                    WorkPointCell(
+                        store: store,
+                        row: row,
+                        selectedPointID: selectedPointID,
+                        themeColor: listing.themeColor,
+                        onSelect: onSelectPoint
+                    )
+                }
+            }
+
+            externalLinksRow
+                .padding(.top, SheetMetrics.sectionSpacing)
+            contributorRow
+                .padding(.top, SheetMetrics.sectionSpacing)
+        }
+        .collapsedInCompactStage(isMinimized ? .compact : .medium)
+    }
+
+    private func toggleGroup(_ id: String) {
+        var ids = collapsedGroupIDs
+        if ids.contains(id) { ids.remove(id) } else { ids.insert(id) }
+        setCollapsed(ids)
     }
 
     // MARK: 1. 頭部（設計稿 2b）
 
-    /// 一段式の身份条は上下の余白まで自前で持つ（`compactBarRow`）。中/大档の頭部だけが
-    /// カード共通の上余白と、その下の節との間隔を足す。
-    @ViewBuilder
-    private var header: some View {
-        if isMinimized {
-            compactHeader
-        } else {
-            fullHeader
-                .padding(.top, SheetMetrics.topInset)
-                .padding(.bottom, SheetMetrics.headerBottomSpacing)
-        }
-    }
-
-    /// 設計稿 2b 一段式：標題 ＋ 副題 ＋ 深緑の「全部点位」＋ ✕。共有は出さない。
-    private var compactHeader: some View {
-        HStack(alignment: .center, spacing: SheetMetrics.circleButtonGap) {
-            VStack(alignment: .leading, spacing: SheetMetrics.rowTitleGap) {
-                // 1 行しか無いので、長い作品名は `…` に切らず横に流す。
-                MarqueeText(text: store.name(forBangumi: workID), font: SheetFont.titleCompactWork)
-                subtitleRow(includesScreenshots: false)
+    /// **1 つの容器のまま档を跨ぐ**頭部（一段式＝設計稿 2b 身份条、中/大档＝標題ブロック）。
+    /// 位移感の要は器を入れ替えないこと —— 行揃え・行距・余白は数値のまま切り替え、バネが
+    /// その差を補間するので、標題・副題・✕ が同じ視図のまま新しい位置へ滑る。入れ替わるのは
+    /// 避けようがない葉だけ（跑马灯 ↔ 2 行標題、「全部点位」↔ 共有）で、それらは原位で淡換する。
+    private func header(isCompact: Bool) -> some View {
+        HStack(
+            alignment: isCompact ? .center : .top,
+            spacing: SheetMetrics.circleButtonGap
+        ) {
+            VStack(
+                alignment: .leading,
+                spacing: isCompact ? SheetMetrics.rowTitleGap : SheetMetrics.titleSubtitleGap
+            ) {
+                // 標題の槽。一段式は 1 行で横に流し（`MarqueeText`）、中/大档は 2 行で折る ——
+                // この 2 つだけは同じ視図にできないので、槽の中で原位淡換する
+                // （槽そのものは行揃え・余白の補間に乗って滑る）。
+                ZStack(alignment: .topLeading) {
+                    if isLoadingSkeleton {
+                        SkeletonBar(width: 160, height: isCompact ? 13 : 14)
+                            .anitabiSkeletonShimmer()
+                            .transition(.opacity)
+                    } else if isCompact {
+                        MarqueeText(text: listing.name, font: SheetFont.titleCompactWork)
+                            .transition(.opacity)
+                    } else {
+                        Text(listing.name)
+                            .font(SheetFont.titleLarge)
+                            .foregroundStyle(Color.anitabiInk)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .transition(.opacity)
+                    }
+                }
+                if isLoadingSkeleton {
+                    SkeletonBar(width: 110, height: 9)
+                        .anitabiSkeletonShimmer()
+                        .transition(.opacity)
+                } else {
+                    subtitleRow(includesScreenshots: !isCompact)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // 隣の ✕ と同じ背丈（`barChip`）。行末に並ぶコントロールは高さを揃える。
-            Button("全部点位", action: onRefit)
-                .buttonStyle(AnitabiCapsuleStyle(kind: .primary, size: .barChip))
-                .fixedSize(horizontal: true, vertical: false)
+            // 行末の連れ合いだけが入れ替わる（一段式は地図が見えているから「全部点位」、
+            // 中/大档は共有）。✕ は同じ視図のまま余白の補間に乗って滑る。
+            if isCompact {
+                // 隣の ✕ と同じ背丈（`barChip`）。行末に並ぶコントロールは高さを揃える。
+                Button("全部点位", action: onRefit)
+                    .buttonStyle(AnitabiCapsuleStyle(kind: .primary, size: .barChip))
+                    .fixedSize(horizontal: true, vertical: false)
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+            } else {
+                ShareLink(item: shareURL, subject: shareSubject) {
+                    CardCircleLabel(systemName: "square.and.arrow.up")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("分享")
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
+            }
             CardCloseButton(action: onClose)
         }
-        // 迷你条の行高は 4 枚のカードで共通（`compactBarRow`）。
-        .compactBarRow()
-    }
-
-    /// 設計稿 2b 两段式／三段式：左寄せの標題ブロック（18px/900）＋ 共有 ◯ ＋ ✕。
-    private var fullHeader: some View {
-        CardHeader(
-            title: store.name(forBangumi: workID),
-            titleFont: SheetFont.titleLarge,
-            onClose: onClose
-        ) {
-            ShareLink(item: shareURL, subject: shareSubject) {
-                CardCircleLabel(systemName: "square.and.arrow.up")
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("分享")
-        } subtitle: {
-            subtitleRow(includesScreenshots: true)
-        }
+        .stageHeaderFrame(isCompact: isCompact)
     }
 
     /// 設計稿の副題：主題色点 ＋ `{cat} · {city} · {N 个点位}`（中/大档はさらに `{M 张截图}`）。
     private func subtitleRow(includesScreenshots: Bool) -> some View {
         HStack(spacing: SheetMetrics.scaled(5)) {
-            ThemeDot(color: themeColor, size: SheetMetrics.dotSize)
+            ThemeDot(color: listing.themeColor, size: SheetMetrics.dotSize)
             Text(subtitleText(includesScreenshots: includesScreenshots))
                 .lineLimit(1)
+                // 档で末尾の「N 张截图」が付いたり落ちたりする。字は原位で淡換して、
+                // 行そのものは頭部の余白補間に乗って滑る。
+                .contentTransition(.opacity)
         }
         .font(SheetFont.rowMeta)
         .foregroundStyle(Color.anitabiInkSecondary)
@@ -165,7 +284,7 @@ struct WorkCardSheet: View {
         var parts: [String] = []
         if let cat = bangumi?.cat?.nilIfBlank { parts.append(cat) }
         if let city = bangumi?.city?.nilIfBlank { parts.append(city) }
-        parts.append(String(localized: "\(points.count) 个点位"))
+        parts.append(String(localized: "\(listing.pointCount) 个点位"))
         if includesScreenshots {
             let screenshotCount = store.screenshotCount(forBangumi: workID)
             if screenshotCount > 0 { parts.append(String(localized: "\(screenshotCount) 张截图")) }
@@ -179,7 +298,7 @@ struct WorkCardSheet: View {
         SheetGroupCard {
             HStack(alignment: .center, spacing: SheetMetrics.thumbnailGap) {
                 RoundedRectangle(cornerRadius: SheetMetrics.infoCoverRadius, style: .continuous)
-                    .fill(themeColor.anitabiThemeGradient)
+                    .fill(listing.themeColor.anitabiThemeGradient)
                     .overlay {
                         if let url = headerCoverURL {
                             RemoteImage(url: url) { phase in
@@ -227,7 +346,7 @@ struct WorkCardSheet: View {
     }
 
     private var shareSubject: Text {
-        Text("《\(store.name(forBangumi: workID))》的巡礼地图")
+        Text("《\(listing.name)》的巡礼地图")
     }
 
     // MARK: 3. 分组控件行（設計稿 2b：分段控件 ＋ 「全部展开」カプセル）
@@ -236,23 +355,16 @@ struct WorkCardSheet: View {
         HStack(spacing: SheetMetrics.itemSpacing) {
             AnitabiSegmentedPicker(
                 selection: $groupMode,
-                options: hasAnyEpisode
+                options: listing.hasAnyEpisode
                     ? [AnitabiSegment(.folder, "按分组"), AnitabiSegment(.episode, "按话数")]
                     : [AnitabiSegment(.folder, "按分组")]
             )
             Button(isFullyExpanded ? "全部折叠" : "全部展开") {
-                withAnimation(.anitabiSpring) {
-                    collapsedGroupIDs = isFullyExpanded ? Set(groups.map(\.id)) : []
-                }
+                setCollapsed(isFullyExpanded ? Set(listing.groups.map(\.id)) : [])
             }
             .buttonStyle(AnitabiCapsuleStyle(kind: .secondary, size: .rowChip))
             .fixedSize(horizontal: true, vertical: false)
         }
-    }
-
-    /// 初期状態は常に全展开（折叠は「全部折叠」ボタンから明示的に行う）。
-    private func resetCollapseState() {
-        collapsedGroupIDs = []
     }
 
     // MARK: 4. 外链（設計稿 2b：白い薄膜のカプセルを折り返して並べる）
@@ -321,7 +433,7 @@ struct WorkCardSheet: View {
                             .font(SheetFont.meta)
                             .foregroundStyle(Color.anitabiOnAccent)
                             .frame(width: SheetMetrics.contributorAvatarDiameter, height: SheetMetrics.contributorAvatarDiameter)
-                            .background(themeColor.opacity(1 - Double(index) * 0.2), in: .circle)
+                            .background(listing.themeColor.opacity(1 - Double(index) * 0.2), in: .circle)
                             .overlay { Circle().strokeBorder(Color.anitabiRaisedStroke, lineWidth: SheetMetrics.shape(2)) }
                     }
                 }
@@ -348,5 +460,25 @@ struct WorkCardSheet: View {
             return String(localized: "由 \(joined) 收集")
         }
         return String(localized: "由 \(joined) 等 \(summary.total) 位贡献者收集")
+    }
+}
+
+// MARK: - 再評価の遮断
+
+/// `RootView` は sheet を拖动する間、中身の高さを毎フレーム `@State` に書く。そのままだと
+/// このカードの body も毎フレーム走り、点数の多い作品では一覧の再構築がそこにぶら下がる。
+/// **値が変わっていなければ body ごと飛ばす**ためだけの `Equatable`。
+///
+/// 閉包（`onSelectPoint` など）を比較から外しても古い挙動には固まらない —— 中で読んでいる
+/// `RootView` の `@State` はどれも箱への参照なので、古い `self` を捕まえた閉包から読んでも
+/// 現在値が返る。**データの世代（`dataGeneration`）だけは値として持つ**必要があるので、
+/// それは上で明示的に受け取っている。
+extension WorkCardSheet: Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.store === rhs.store
+            && lhs.workID == rhs.workID
+            && lhs.dataGeneration == rhs.dataGeneration
+            && lhs.selectedPointID == rhs.selectedPointID
+            && lhs.isMinimized == rhs.isMinimized
     }
 }

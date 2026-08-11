@@ -58,6 +58,7 @@ struct DroppedPinSheet: View {
             }
             .scenePadding(.horizontal)
             .sheetScrollBottomPadding(sheetBottomInset)
+            .animatesSheetStage(stage)
         }
         .sheet(item: $safariItem) { item in SafariSheet(url: item.url) }
         .task {

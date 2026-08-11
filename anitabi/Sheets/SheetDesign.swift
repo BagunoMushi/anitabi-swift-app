@@ -209,10 +209,16 @@ extension View {
     /// 一段式では身份条より下を**レイアウトからも外す**（高さ 0 に畳む）—— opacity だけで隠すと
     /// 見えないまま場所を要求し続け、足りないぶんを SwiftUI が身份条の余白から削るので、
     /// カードごとに数 pt 潰れて縦位置が食い違う。
+    /// 高さの nil ↔ 0 は補間できない（nil は「拘束なし」で数値ではない）ので、跳ぶ瞬間は
+    /// **下へ 20pt 沈めた位置からの浮上＋淡入**で繋ぐ —— 展開では中身が頭部の下から滑り上がり、
+    /// 収起では沈みながら消える（offset は枠の内側なので、畳んだ後は clip の外に居るだけ）。
+    /// カードには `.animation(value: stage)` を必ず併せて掛けること。
     func collapsedInCompactStage(_ stage: SheetStage) -> some View {
         let isCompact = stage == .compact
-        return frame(height: isCompact ? 0 : nil, alignment: .top)
+        return offset(y: isCompact ? SheetMetrics.scaled(20) : 0)
+            .frame(height: isCompact ? 0 : nil, alignment: .top)
             .clipped()
+            .opacity(isCompact ? 0 : 1)
             .allowsHitTesting(!isCompact)
     }
 
@@ -478,6 +484,12 @@ enum SheetFont {
     static var groupTitle: Font { design(12.5, .heavy, relativeTo: .footnote) }
     /// 11px/900 —— 検索結果の仕分けラベル（設計稿 1b `城市 / 作品 / 地标`）。
     static var resultsLabel: Font { design(11, .heavy, relativeTo: .caption2) }
+    /// 38px/900 —— 欢迎页の App 名（設計稿 4a）。
+    static var welcomeTitle: Font { design(38, .heavy, relativeTo: .largeTitle) }
+    /// 15px/900 —— 欢迎页の特性標題（設計稿 4a）。
+    static var featureTitle: Font { design(15, .heavy, relativeTo: .subheadline) }
+    /// 12.5px/600 —— 欢迎页の頭上ラベル（設計稿 4a `欢迎来到`）。
+    static var welcomeEyebrow: Font { design(12.5, .semibold, relativeTo: .caption1) }
 
     // MARK: 一覧行
 
@@ -537,18 +549,9 @@ enum SheetFont {
 /// **総高は実測値に依存させない**のが鉄則 —— 連動させると「余白 → 条の高さ → 档 → カードの枠 →
 /// 実測値」が輪になって毎フレーム回り続ける。実測値は総高の中の上下配分にだけ使う。
 private struct CompactBarRow: ViewModifier {
-    @Environment(\.compactBarInsets) private var insets
-
     func body(content: Content) -> some View {
-        // 上下の見た目を揃えるための移動量。総高（＝下の 2 つの padding の和）は動かさない。
-        let shift = min(
-            max((insets.top - insets.bottom) / 2, -SheetMetrics.compactBarGap),
-            SheetMetrics.compactBarGap
-        )
-        return content
-            .frame(minHeight: SheetMetrics.compactRowHeight)
-            .padding(.top, SheetMetrics.systemGrabberBottom + SheetMetrics.compactBarGap + shift)
-            .padding(.bottom, SheetMetrics.compactBarGap - shift)
+        // 実体は `StageHeaderFrame` の一段式固定版（余白と shift の算術を 2 か所に割らない）。
+        content.stageHeaderFrame(isCompact: true)
     }
 }
 
@@ -658,6 +661,73 @@ struct SheetListCard<Content: View>: View {
         .padding(.horizontal, SheetMetrics.listCardHorizontalPadding)
         .padding(.vertical, SheetMetrics.listCardVerticalPadding)
         .anitabiPanel(radius: radius)
+    }
+}
+
+/// `SheetListCard` を**行単位に割った**ときの、その行が受け持つ面。**懒容器（`LazyVStack`）が
+/// 惰性化するのは直接の子だけ**なので、何百行もある一覧は器で束ねずに行を直接並べるしかない ——
+/// その代わり「白い薄膜の面」を行ごとに分担して描く。見た目は `SheetListCard` と 1:1
+/// （角丸・地・縁とも同じトークン）で、継ぎ目に横線は出ない。
+enum SheetListSegment {
+    /// 1 行しか無い組（＝`SheetListCard` そのものと同じ絵）。
+    case solo
+    case top
+    case middle
+    case bottom
+
+    /// 上端の縁（角丸と上余白）を自分が描くか。
+    var hasTop: Bool { self == .solo || self == .top }
+    /// 下端の縁（角丸と下余白）を自分が描くか。
+    var hasBottom: Bool { self == .solo || self == .bottom }
+
+    /// 組の中の位置から決める。
+    static func at(_ index: Int, count: Int) -> Self {
+        if count <= 1 { return .solo }
+        if index == 0 { return .top }
+        return index == count - 1 ? .bottom : .middle
+    }
+}
+
+extension View {
+    /// 行に `SheetListCard` の面の一部を敷く。要らない側の縁は**負の余白で枠の外へ追い出してから
+    /// 切り落とす** —— 開いたパスを自前で引くと、`.continuous`（squircle）の角と繋ぎ目が合わない。
+    func sheetListSegment(
+        _ segment: SheetListSegment,
+        radius: CGFloat = SheetMetrics.listCardRadius
+    ) -> some View {
+        modifier(SheetListSegmentPanel(segment: segment, radius: radius))
+    }
+}
+
+private struct SheetListSegmentPanel: ViewModifier {
+    let segment: SheetListSegment
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, SheetMetrics.listCardHorizontalPadding)
+            // 縦余白は組の端の行だけが持つ（`SheetListCard` の `padding(.vertical:)` と同値）。
+            .padding(.top, segment.hasTop ? SheetMetrics.listCardVerticalPadding : 0)
+            .padding(.bottom, segment.hasBottom ? SheetMetrics.listCardVerticalPadding : 0)
+            .background(Color.anitabiSurface, in: shape)
+            .overlay {
+                shape
+                    .strokeBorder(Color.anitabiSurfaceStroke, lineWidth: 1)
+                    .padding(.top, segment.hasTop ? 0 : -radius)
+                    .padding(.bottom, segment.hasBottom ? 0 : -radius)
+                    .clipped()
+            }
+    }
+
+    /// 端でない側は角丸 0 ＝ 直線なので、上下の行の面がぴったり継がる。
+    private var shape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: segment.hasTop ? radius : 0,
+            bottomLeadingRadius: segment.hasBottom ? radius : 0,
+            bottomTrailingRadius: segment.hasBottom ? radius : 0,
+            topTrailingRadius: segment.hasTop ? radius : 0,
+            style: .continuous
+        )
     }
 }
 
@@ -1238,6 +1308,60 @@ struct WorkChipCover: View {
 // MARK: - 共通バネ
 
 extension Animation {
-    /// spec 全体で使う唯一のバネ設定。sheet 档・検索行の切り替えなど全アニメがこれに揃う。
+    /// spec 全体の既定バネ。sheet 档・検索行の切り替えなど、**カードの外形と一緒に動く**
+    /// アニメはこれに揃える。
     static let anitabiSpring = Animation.spring(response: 0.35, dampingFraction: 0.85)
+
+    /// 档で頭部・中身の形が変わるときの専用曲線。既定バネより**速く・跳ねない** ——
+    /// 档の吸着そのものは系统が別の（速い）曲線で動かすので、中身が 0.35s のバネだと
+    /// カードに半拍遅れてもたつく。0.25s の smooth（過衝なし）でカードの動きに貼り付ける。
+    static let anitabiStage = Animation.smooth(duration: 0.25)
+}
+
+extension View {
+    /// 档（`SheetStage`）で形が変わる部分を持つカードの**根の列に必ず掛ける**。
+    /// `stage` は sheet の生の高さから毎フレーム派生する離散値なので、翻る瞬間を
+    /// トランザクションに乗せないと頭部の差し替え・内容の畳みが 1 フレームで跳ぶ。
+    func animatesSheetStage(_ stage: SheetStage) -> some View {
+        animation(.anitabiStage, value: stage)
+    }
+
+    /// 档で頭部の形が変わるカード（作品・地標）の頭部の枠。**頭部は 1 つの容器のまま档を跨ぐ**
+    /// のが位移感の要 —— 一段式と中/大档を別の視図にして入れ替えると、文字は動かず淡出する
+    /// だけになる（matched で位置を繋いでも、両形態の枠はほぼ重なっていて飛ぶ距離が無い）。
+    /// 代わりに余白・行揃えを**数値のまま**この 1 か所で切り替え、バネがその差を毎フレーム
+    /// 補間する —— 標題も✕も同じ視図のまま新しい位置へ滑っていく。
+    ///
+    /// 数値は両形態の正本と同値：一段式は `CompactBarRow`（抓手の帯＋見た目の余白＋実測 shift）、
+    /// 中/大档は `topInset` ＋ `headerBottomSpacing`。
+    func stageHeaderFrame(isCompact: Bool) -> some View {
+        modifier(StageHeaderFrame(isCompact: isCompact))
+    }
+}
+
+/// `stageHeaderFrame` の実体。shift の算術は `CompactBarRow` と同じ（あちらはこれの
+/// isCompact 固定版として実装してある —— 数値が 2 か所に割れないように）。
+struct StageHeaderFrame: ViewModifier {
+    let isCompact: Bool
+    @Environment(\.compactBarInsets) private var insets
+
+    func body(content: Content) -> some View {
+        // 一段式に居ないとき RootView は insets を 0 に落とすので、shift も自然に 0 になる。
+        let shift = min(
+            max((insets.top - insets.bottom) / 2, -SheetMetrics.compactBarGap),
+            SheetMetrics.compactBarGap
+        )
+        return content
+            .frame(minHeight: SheetMetrics.compactRowHeight)
+            .padding(
+                .top,
+                isCompact
+                    ? SheetMetrics.systemGrabberBottom + SheetMetrics.compactBarGap + shift
+                    : SheetMetrics.topInset
+            )
+            .padding(
+                .bottom,
+                isCompact ? SheetMetrics.compactBarGap - shift : SheetMetrics.headerBottomSpacing
+            )
+    }
 }

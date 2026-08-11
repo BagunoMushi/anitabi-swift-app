@@ -32,3 +32,8 @@ fastlane/test_output
 
 # 其他
 docs/
+
+# Ai
+.agents/
+.claude/
+skills-lock.json

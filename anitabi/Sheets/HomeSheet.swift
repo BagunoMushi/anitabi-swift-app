@@ -26,8 +26,9 @@ struct HomeSheet: View {
 
     /// 一覧から地標を選んだ経路（RootView 側が镜头を寄せる）。
     var onSelectPoint: (ScenePoint) -> Void
-    /// 都市タイル／検索の都市行から镜头を都市へ寄せる。
-    var onFocusCity: (CityTile) -> Void
+    /// 都市タイル／検索の都市行から镜头を都市へ寄せる。第 2 引数は「sheet を半开へ落とすか」——
+    /// ブラウズからは true（地図を見せる）、検索からは false（検索態のまま一覧を読ませる）。
+    var onFocusCity: (CityTile, _ collapsesSheet: Bool) -> Void
 
     @State private var searchText = ""
     @FocusState private var isSearchFocused: Bool
@@ -61,6 +62,9 @@ struct HomeSheet: View {
                         suggestions: suggestedWorkIDs
                     )
                     .scenePadding(.horizontal)
+                    // 出入りは淡入淡出だけ。既定の透明度过渡でも、下の `animatesSheetStage` /
+                    // 検索の anitabiSpring に乗って迷你条への収起と同じ呼吸で消える。
+                    .transition(.opacity)
                 }
             }
             // 一段式の実高は**検索行だけ**で測る。生の行を測ると chips の出入りで最小档が動き、
@@ -77,21 +81,30 @@ struct HomeSheet: View {
                         locationProvider: locationProvider,
                         query: searchText,
                         onSelectPoint: onSelectPoint,
-                        onFocusCity: onFocusCity,
+                        onPickCity: pickCity,
                         onFinishSelection: endSearch
                     )
+                    // ブラウズ ↔ 検索は**淡入淡出だけ**にする —— どちらも画面の大半を占める
+                    // 一覧なので、blurReplace を掛けると全行のスナップショットに霞を掛ける
+                    // ぶんだけ入りの 1 フレームが重い。
+                    .transition(.opacity)
                 } else {
                     HomeBrowseView(
                         store: store,
                         router: router,
                         locationProvider: locationProvider,
                         onSelectPoint: onSelectPoint,
-                        onFocusCity: onFocusCity
+                        onFocusCity: { onFocusCity($0, true) }
                     )
+                    .transition(.opacity)
                 }
             }
             .collapsedInCompactStage(stage)
         }
+        // 档の翻りと検索の出入りは同じバネに乗せる（`stage` は生の高さから毎フレーム派生する
+        // 離散値なので、これが無いと chips・一覧の畳みが翻った 1 フレームで跳ぶ）。
+        .animatesSheetStage(stage)
+        .animation(.anitabiSpring, value: isSearchActive)
         // ドラッグでキーボードを下げる（検索結果を読みながら閉じたいときの標準挙動）。
         .scrollDismissesKeyboard(.interactively)
         .onChange(of: isSearchFocused) { _, focused in
@@ -224,5 +237,14 @@ struct HomeSheet: View {
         isSearchFocused = false
         isSearchActive = false
         withAnimation(.anitabiSpring) { homeDetent = initialDetent }
+    }
+
+    /// 検索から都市を選んだ（web 版と同じ導線）：都市名を検索欄に**残し**、検索態のまま
+    /// 下に「この都市の作品」を出す。キーボードだけ下げて一覧を読めるようにし、
+    /// 镜头は裏で都市へ飛ばす（sheet は落とさない —— 落とすと一覧が見えない）。
+    private func pickCity(_ city: CityTile) {
+        searchText = city.name
+        isSearchFocused = false
+        onFocusCity(city, false)
     }
 }

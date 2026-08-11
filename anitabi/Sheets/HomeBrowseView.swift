@@ -35,19 +35,37 @@ struct HomeBrowseView: View {
         Array(store.nearby.filter { $0.distance <= 5_000 }.prefix(3))
     }
 
+    /// 初回起動〜データ完走までの空窗だけ骨架屏を出す。`geometryOnly` も骨架のまま ——
+    /// 座標だけの段階では作品名・点名が全部空文字で、実物の行を出すと白紙の行が並ぶ。
+    private var isLoadingSkeleton: Bool {
+        switch store.phase {
+        case .empty, .geometryOnly: true
+        case .complete, .failed: false
+        }
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
                 // 検索行と作品 chips 行は `HomeSheet` が ScrollView の外に固定で持っている。
-                continueWatchingRow
-                nearbySection
-                workBrowseSection
-                CityGridSection(cities: store.cities, onSelect: onFocusCity)
-                footer
+                if isLoadingSkeleton {
+                    HomeBrowseSkeleton()
+                        .transition(.opacity)
+                } else {
+                    Group {
+                        continueWatchingRow
+                        nearbySection
+                        workBrowseSection
+                        CityGridSection(cities: store.cities, onSelect: onFocusCity)
+                        footer
+                    }
+                    .transition(.opacity)
+                }
             }
             .scenePadding(.horizontal)
             // 上の余白は検索行が持っているので、ここでは足さない。
             .sheetScrollBottomPadding(sheetBottomInset)
+            .animation(.anitabiSpring, value: isLoadingSkeleton)
         }
         .task(id: NearbyRecomputeTrigger(timestamp: locationProvider.location?.timestamp, phase: store.phase)) {
             guard let location = locationProvider.location, !store.isEmpty else { return }

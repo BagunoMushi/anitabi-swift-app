@@ -81,6 +81,10 @@ final class AnitabiStore {
     private(set) var points: [ScenePoint] = []
     private(set) var phase: DataLoadPhase = .empty
 
+    /// データを差し替えるたびに 1 つ増える。**派生値のキャッシュはこれを見る** —— 名前・劇照は
+    /// 点数を変えずに後から合流するので、「中身が変わったか」を `points.count` では判定できない。
+    private(set) var dataGeneration = 0
+
     private var bangumiByID: [Int: BangumiLite] = [:]
     /// 作品ごとの最終更新（g0-g6 のセル 3 番目）。「最近更新」タブに使う。
     private var bangumiModified: [Int: Double] = [:]
@@ -165,6 +169,7 @@ final class AnitabiStore {
     }
 
     private func apply(_ dataset: AnitabiDataset) {
+        dataGeneration += 1
         bangumis = dataset.bangumis
         points = dataset.points
         bangumiByID = Dictionary(dataset.bangumis.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -437,6 +442,26 @@ final class AnitabiStore {
             guard
                 point.lat >= minLat, point.lat <= maxLat,
                 point.lng >= minLng, point.lng <= maxLng
+            else { continue }
+            counts[point.bangumiID, default: 0] += 1
+        }
+        return counts.map { (id: $0.key, count: $0.value) }.sorted { $0.count > $1.count }
+    }
+
+    /// 都市圏（`CityTile` の中心＋半径の円）に地標を持つ作品を、点数の多い順に集計する。
+    /// 検索で都市を選んだときの「この都市の作品」一覧用（web 版と同じ導線）。
+    /// 全点の線形走査だが、荒い bbox で先に絞ってから円距離を測るのでタップ 1 回ぶんなら安い。
+    func worksInCity(_ city: CityTile) -> [(id: Int, count: Int)] {
+        let latHalf = city.radius / 111_320
+        let lngHalf = latHalf / max(cos(city.center.latitude * .pi / 180), 0.2)
+        let center = CLLocation(latitude: city.center.latitude, longitude: city.center.longitude)
+
+        var counts: [Int: Int] = [:]
+        for point in points {
+            guard
+                abs(point.lat - city.center.latitude) <= latHalf,
+                abs(point.lng - city.center.longitude) <= lngHalf,
+                CLLocation(latitude: point.lat, longitude: point.lng).distance(from: center) <= city.radius
             else { continue }
             counts[point.bangumiID, default: 0] += 1
         }
