@@ -680,9 +680,18 @@ extension MapCanvas {
                     ),
                     on: mapView
                 )
-                let apply = { mapView.setVisibleMapRect(rect, edgePadding: padding, animated: true) }
-                command.animated ? animateCamera(apply) : mapView.setVisibleMapRect(
-                    rect, edgePadding: padding, animated: false
+                // 収め先の計算と実際の移動を**分ける**のが肝（2026-08-11・録画のコマ送りで確定）。
+                // `setVisibleMapRect` 系で動かすと、日本全境→街区のような大きな寄りが**飛ばずに
+                // 切り替わる**（500ms ほど誤差程度に動いた後、1 コマで着く。`UIView.animate` の
+                // 1.2 秒も拾わない）。同じ距離を `setRegion(animated:)` で動かすと最初から最後まで
+                // 滑るので、寄せ幅ではなく API の側の性質。
+                // なので余白ぶんの計算だけ `mapRectThatFits`（副作用なしの純計算）で済ませ、
+                // 動かすのは定位钮と同じ `setRegion` 経路に渡す。どちらも同じ論理視口
+                // （`bounds` − `layoutMargins`）に収めるので、着いた絵は前と画素単位で一致する（実測）。
+                move(
+                    to: MKCoordinateRegion(mapView.mapRectThatFits(rect, edgePadding: padding)),
+                    on: mapView,
+                    animated: command.animated
                 )
 
             case .userLocation(let span):
@@ -751,12 +760,31 @@ extension MapCanvas {
         }
 
         private func move(to rect: MKMapRect, on mapView: MKMapView, animated: Bool) {
-            let padding = Self.compensatingMargin(on: mapView)
+            move(to: rect, padding: Self.compensatingMargin(on: mapView), on: mapView, animated: animated)
+        }
+
+        /// 矩形を余白付きで収める（`.center` と一覧からの `.flyToPoint`）。
+        ///
+        /// 余白は `mapRectThatFits(_:edgePadding:)`（副作用なしの純計算）で先に畳んでおき、
+        /// 動かすのは素の overload に渡す。どちらも同じ論理視口（`bounds` − `layoutMargins`）へ
+        /// 収める実装なので、着いた絵は `edgePadding:` 付きで動かしていた版と画素単位で一致する
+        /// （2026-08-11・一覧から「東京タワー」を開いた画で照合）。この経路は 1.2 秒かけて
+        /// ちゃんと滑る（日本全境→東京の街区まで、コマ送りで確認）。
+        ///
+        /// 作品の枠フィット（`.fitWork`）だけは**同じ書き方では滑らず**、`setRegion` 経路に
+        /// 渡している —— 理由と実測はあちらのコメントに。
+        private func move(
+            to rect: MKMapRect,
+            padding: UIEdgeInsets,
+            on mapView: MKMapView,
+            animated: Bool
+        ) {
+            let fitted = mapView.mapRectThatFits(rect, edgePadding: padding)
             guard animated else {
-                mapView.setVisibleMapRect(rect, edgePadding: padding, animated: false)
+                mapView.setVisibleMapRect(fitted, animated: false)
                 return
             }
-            animateCamera { mapView.setVisibleMapRect(rect, edgePadding: padding, animated: true) }
+            animateCamera { mapView.setVisibleMapRect(fitted, animated: true) }
         }
 
         /// MKMapView 既定のカメラ移動は 0.3 秒ほどで、Web 版の 1.2 秒より忙しない。
