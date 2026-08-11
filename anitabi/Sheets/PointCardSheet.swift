@@ -231,21 +231,29 @@ struct PointCardSheet: View {
     }
 
     /// 設計稿 `EP03 · 08:12 · 距我 1.2 km`。作品 chip の直後に続けるので先頭にも区切りを置く。
+    ///
+    /// ただし **EP／タイムコードは剧照の右下に焼き込んである**（`MediaBadge`）。同じ物を副題にも
+    /// 書くと二度書きになるうえ、この行でいちばん要る「現在地から N km」を押し出して省略させる。
+    /// なので剧照がある点では出さない（剧照が無い点は徽章も無いので、こちらに出す）。
     private func metaText(_ point: ScenePoint) -> String {
-        let parts = metaParts(point)
+        let parts = metaParts(point, includesEpisode: cardImageURL == nil)
         guard !parts.isEmpty else { return "" }
         return "· " + parts.joined(separator: " · ")
     }
 
     /// 一段式は作品名から続けて書くので区切りの前置きは付けない。
+    /// こちらは剧照が迷你サムネイルで徽章が見えないので、EP／タイムコードも書く。
     private func compactMetaText(_ point: ScenePoint) -> String {
-        ([store.name(forBangumi: selection.bangumiID)] + metaParts(point)).joined(separator: " · ")
+        let parts = metaParts(point, includesEpisode: true)
+        return ([store.name(forBangumi: selection.bangumiID)] + parts).joined(separator: " · ")
     }
 
-    private func metaParts(_ point: ScenePoint) -> [String] {
+    private func metaParts(_ point: ScenePoint, includesEpisode: Bool) -> [String] {
         var parts: [String] = []
-        if let ep = point.episodeBadge { parts.append(ep) }
-        if let timecode = point.timecodeText { parts.append(timecode) }
+        if includesEpisode {
+            if let ep = point.episodeBadge { parts.append(ep) }
+            if let timecode = point.timecodeText { parts.append(timecode) }
+        }
         if let distance = distanceText(point) { parts.append(distance) }
         return parts
     }
@@ -315,16 +323,22 @@ struct PointCardSheet: View {
             Image(systemName: "photo.badge.plus")
                 .font(SheetFont.titleLarge)
                 .foregroundStyle(Color.anitabiInkTertiary)
-            Text("这个点还没有截图")
+            // 一行で言い切る短さに保つ。長い説明文（旧「このスポットにはまだ〜ありません」）は
+            // 枠の中で折り返して、下の釦を押し出していた。
+            Text("还没有截图")
                 .font(SheetFont.rowTitle)
                 .foregroundStyle(Color.anitabiInk)
             Button("补传截图") {
                 safariItem = SafariItem(url: AnitabiWebLink.createPoint(point: point, bangumi: bangumi))
             }
-            .buttonStyle(AnitabiCapsuleStyle(kind: .primary, size: .chip))
+            // 動作排の「地图」「街景」と同じ寸法（`.action`）。chip 級に落とすと、
+            // すぐ下に並ぶカプセルより一段小さく見える。
+            .buttonStyle(AnitabiCapsuleStyle(kind: .primary, size: .action))
         }
+        // 高さは剧照と**同じ**にする。内容から高さを作ると剧照の無い点だけ枠が潰れ、
+        // 点を切り替えるたびにカードの背丈と下の動作排の位置が跳ねる。
         .frame(maxWidth: .infinity)
-        .padding(.vertical, SheetMetrics.scaled(24))
+        .frame(height: mediaHeight)
         .anitabiPanel(radius: SheetMetrics.mediaRadius)
     }
 

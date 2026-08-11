@@ -1706,23 +1706,6 @@
         }
       }
     },
-    "查看全部点位" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show All Spots"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべてのスポットを表示"
-          }
-        }
-      }
-    },
     "查看原始链接" : {
       "comment" : "Link to the original source of the spot data",
       "extractionState" : "manual",
@@ -2571,19 +2554,19 @@
         }
       }
     },
-    "这个点还没有截图" : {
+    "还没有截图" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No screenshot for this spot yet"
+            "value" : "No screenshot yet"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このスポットにはまだスクリーンショットがありません"
+            "value" : "画面がまだありません"
           }
         }
       }

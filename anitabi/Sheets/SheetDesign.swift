@@ -89,9 +89,18 @@ enum SheetLayout {
     //     落针   160 → 22.2%    356 → 49.4%
     //
     // 一段式だけは height 無し（＝中身の高さ）なので、こちらも実測で作る（`minDetent`）。
+    // 首页・作品の二段式だけは、この表の値をさらに `secondaryShrink` 倍して使う（下記）。
 
-    static let homeFraction = 0.575
-    static let workFraction = 0.556
+    /// 二段目を設計稿より低くする係数（同指示 2026-08-10：「二级需要缩短 20%」）。
+    /// 設計稿の 414/400px は地図に残る帯が狭く、二段目でも点の散らばりが見えない。
+    /// 中身が足りないカードは元から `fittedHeight` で詰まるので、これが効くのは
+    /// **中身がスクロールするカード（首页・作品）だけ** —— そこが対象そのもの。
+    static let secondaryShrink: CGFloat = 0.75
+
+    static let homeFraction = 0.575 * secondaryShrink
+    static let workFraction = 0.556 * secondaryShrink
+    /// 地標カードだけ設計稿のまま（同指示：「剧照不要缩减」）。このカードは一段／二段しか
+    /// 持たない（`hasExpandedStage`）ので二段目が上限＝ここを削ると剧照が切れる。
     static let pointFraction = 0.531
     /// 落針カードの 2 段目は設計稿でいちばん浅い（頭部 ＋ 動作排 ＋ 注記でぴったり）。
     /// ここを深くすると、中身が足りずカードの下がまるごと空く。
@@ -347,7 +356,7 @@ enum SheetMetrics {
     /// カードごとに行高が違うと「作品カードだけ一回り小さい」「地標カードだけ中身が下寄り」に
     /// なる（実機で指摘された）。基準は設計稿 1a の検索欄と同じ 40px ——
     /// 他カードの身份条（標題＋副題・✕ の当たり判定 44）もこの中に収まる。
-    static var compactRowHeight: CGFloat { max(scaled(40), minimumHitTarget) }
+    static var compactRowHeight: CGFloat { max(controlHeight, minimumHitTarget) }
 
     /// 節と節の間。設計稿の `margin-top: 10px`。
     static var sectionSpacing: CGFloat { scaled(10) }
@@ -395,10 +404,12 @@ enum SheetMetrics {
     /// 作品カードの点行サムネイル。設計稿 `50×38` / 角丸 9。
     static var pointThumbnailSize: CGSize { DesignScale.size(width: 50, height: 38) }
     static var pointThumbnailRadius: CGFloat { shape(9) }
-    /// 地標カード一段式の迷你剧照。設計稿は `56×42` だが、**身份条の行高（40px）に合わせて**
-    /// 4:3 のまま `53×40` に詰めてある —— 42px のままだと地標カードの迷你条だけ 2pt 高くなり、
-    /// 幅も浮き方も他カードとずれる（`compactRowHeight` 参照）。角丸 10。
-    static var miniThumbnailSize: CGSize { DesignScale.size(width: 53, height: 40) }
+    /// 地標カード一段式の迷你剧照。**身份条の行高ちょうど**（設計稿 56×42 の 4:3 は保つ）。
+    /// 行より高いとその条だけ背が伸びて、4 枚の迷你条が揃わなくなる（`compactRowHeight` 参照）。角丸 10。
+    static var miniThumbnailSize: CGSize {
+        let height = compactRowHeight
+        return CGSize(width: (height * 4 / 3).rounded(), height: height)
+    }
     /// 作品ブラウズ行の封面。設計稿 `38×52` / 角丸 7。
     static var coverSize: CGSize { DesignScale.size(width: 38, height: 52) }
     /// 検索結果行の封面。設計稿 `34×46`。
@@ -416,8 +427,11 @@ enum SheetMetrics {
 
     // MARK: コントロール
 
-    /// 検索欄の高さ。設計稿 `padding: 10px 14px` ＋ 14px 字 ≒ 40。右隣の丸釦も同じ辺。
-    static var searchFieldHeight: CGFloat { scaled(40) }
+    /// **同じ行に並ぶコントロールの背丈**（検索欄・丸釦・行末 chip）。設計稿は検索欄 40px・
+    /// 丸釦 34px と別々に書いているが、並べると段違いに見えるので丸釦側に揃える（実機で指摘）。
+    static var controlHeight: CGFloat { circleButtonDiameter }
+    /// 検索欄の高さ。行に並ぶ他のコントロールと同じ（上を参照）。
+    static var searchFieldHeight: CGFloat { controlHeight }
     /// 検索欄の内側の水平余白。設計稿 `padding: 10px 14px` の 14。
     static var searchFieldHorizontalPadding: CGFloat { scaled(14) }
     /// 検索欄の中の「✕」。設計稿 `width/height: 18px`。
@@ -790,6 +804,15 @@ enum AnitabiCapsuleSize {
     case rowChip
     /// 小さい chip。設計稿 `padding:6px 12px` ＋ 11.5px/700（`继续`・外链）。
     case smallChip
+    /// 一段式の行末で丸釦と並ぶ chip（作品カードの「全部点位」）。
+    /// **高さは隣の丸釦と同じ**（横並びのコントロールは背丈を揃える）——
+    /// 余白から高さを作ると 29pt にしかならず、38pt の ✕ の隣で一段低く見える。
+    case barChip
+
+    /// 高さを余白ではなく**寸法として**決めるサイズ。隣の部品と揃えたいときに使う。
+    var fixedHeight: CGFloat? {
+        self == .barChip ? SheetMetrics.controlHeight : nil
+    }
 
     var verticalPadding: CGFloat {
         switch self {
@@ -797,6 +820,7 @@ enum AnitabiCapsuleSize {
         case .inlineAction: SheetMetrics.scaled(8)
         case .rowChip: SheetMetrics.segmentedVerticalPadding + SheetMetrics.segmentedTrackPadding
         case .chip, .smallChip: SheetMetrics.scaled(6)
+        case .barChip: 0  // 高さは `fixedHeight` で決める
         }
     }
 
@@ -805,7 +829,7 @@ enum AnitabiCapsuleSize {
         case .action: SheetMetrics.scaled(14)
         case .inlineAction: SheetMetrics.scaled(14)
         case .chip, .rowChip: SheetMetrics.scaled(10)
-        case .smallChip: SheetMetrics.scaled(12)
+        case .smallChip, .barChip: SheetMetrics.scaled(12)
         }
     }
 
@@ -814,7 +838,7 @@ enum AnitabiCapsuleSize {
         case .action: secondary ? SheetFont.actionSecondary : SheetFont.action
         case .inlineAction: SheetFont.chipStrong
         case .chip, .rowChip: secondary ? SheetFont.chip : SheetFont.chipStrong
-        case .smallChip: SheetFont.chipSmall
+        case .smallChip, .barChip: SheetFont.chipSmall
         }
     }
 }
@@ -853,6 +877,8 @@ struct AnitabiCapsuleFace<Content: View>: View {
             // 設計稿の動作排は `padding: 10px 0` ——幅いっぱいに伸びる項目に左右余白は無い。
             // 余白を足すと、いちばん狭いスロット（`flex:1`）で字が入らなくなる。
             .padding(.horizontal, fullWidth ? 0 : size.horizontalPadding)
+            // 高さを寸法で決めるサイズ（`barChip`）はここで固定する。
+            .frame(height: size.fixedHeight)
             .frame(
                 maxWidth: fullWidth ? .infinity : nil,
                 maxHeight: fillsRowHeight ? .infinity : nil
@@ -1222,6 +1248,8 @@ struct SceneThumbnail: View {
     var radius: CGFloat = SheetMetrics.sceneThumbnailRadius
     /// 剧照が無いことを主題色で示す行（作品カードの点行）だけ渡す。
     var placeholder: LinearGradient?
+    /// 既定は「滚动で見えた行だけ読む」。ScrollView の外に置く時だけ `.appearance`。
+    var trigger: RemoteImageTrigger = .scrollVisibility
 
     var body: some View {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -1248,9 +1276,8 @@ struct SceneThumbnail: View {
 struct CoverThumbnail: View {
     let bangumi: BangumiLite
     var size: CGSize = SheetMetrics.coverSize
-    /// 既定は「滚动で見えた行だけ読む」。ScrollView の外に置く時だけ `.appearance`。
-    var trigger: RemoteImageTrigger = .scrollVisibility
     var radius: CGFloat = SheetMetrics.coverRadius
+    var trigger: RemoteImageTrigger = .scrollVisibility
 
     var body: some View {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -1277,7 +1304,6 @@ struct ThemeDot: View {
     var body: some View {
         Circle()
             .fill(color)
-    var trigger: RemoteImageTrigger = .scrollVisibility
             .frame(width: size, height: size)
             .overlay {
                 if UIColor(color).needsDarkInnerOutline {
@@ -1292,6 +1318,7 @@ struct WorkChipCover: View {
     let bangumi: BangumiLite?
     let fallback: Color
     var diameter: CGFloat = SheetMetrics.chipCoverDiameter
+    var trigger: RemoteImageTrigger = .scrollVisibility
 
     var body: some View {
         Circle()
@@ -1317,4 +1344,3 @@ extension Animation {
     /// spec 全体で使う唯一のバネ設定。sheet 档・検索行の切り替えなど全アニメがこれに揃う。
     static let anitabiSpring = Animation.spring(response: 0.35, dampingFraction: 0.85)
 }
-    var trigger: RemoteImageTrigger = .scrollVisibility

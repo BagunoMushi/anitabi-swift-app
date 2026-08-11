@@ -7,8 +7,12 @@
 //  設計稿 2b で唯一「档で内容が変わる」のがこのカードの頭部：
 //  - 一段式（最小档）= **身份条**。標題 ＋ 副題 ＋「全部点位」＋ ✕ の 1 行だけにして、
 //    残りは地図（点位の散らばりを見る）に譲る。
-//  - 两段式／三段式 = 標題ブロック ＋ 共有 ◯ ＋ ✕ に戻り、「查看全部点位」は
-//    情報カードの下の全幅カプセルへ降りる。
+//  - 两段式／三段式 = 標題ブロック ＋ 共有 ◯ ＋ ✕ に戻る。
+//
+//  設計稿 2b は情報カードの下にも全幅の「查看全部点位」を置いていたが、原生版では持たない：
+//  中/大档では地図がカードの下に隠れているので押しても何も見えず、しかも一覧から点へ入って
+//  ✕ で戻ってきた時点で RootView が全点の画へ寄せ直す（`refitWork`）。残すのは
+//  **地図が見えている一段式の身份条だけ** —— そこでは自分でパンした後に戻る手が要る。
 //
 
 import SwiftUI
@@ -24,7 +28,7 @@ struct WorkCardSheet: View {
     /// 一覧から地標を選んだ経路。地図からの選択とは違い、呼び出し側が镜头を寄せる。
     var onSelectPoint: (ScenePoint) -> Void
     var onClose: () -> Void
-    /// 「查看全部点位」＝ RootView に fitWork を再発行してもらう（初回 `didOpenWork` と同じ計算）。
+    /// 一段式の「全部点位」＝ RootView に fitWork を再発行してもらう（初回 `didOpenWork` と同じ計算）。
     var onRefit: () -> Void
 
     /// 全作品で共有する分组方式。作品を跨いでも前回の選択を覚えておく（web 版のタブ記憶と同じ）。
@@ -83,8 +87,6 @@ struct WorkCardSheet: View {
                 // 判定は生の sheet 高さ由来（RootView）なので、拖动に即座に追従する。
                 LazyVStack(alignment: .leading, spacing: SheetMetrics.sectionSpacing) {
                     infoCard
-                    Button("查看全部点位", action: onRefit)
-                        .buttonStyle(AnitabiCapsuleStyle(kind: .primary, fullWidth: true))
                     if showsGroupingControls {
                         groupingControlsRow
                     }
@@ -141,8 +143,9 @@ struct WorkCardSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            // 隣の ✕ と同じ背丈（`barChip`）。行末に並ぶコントロールは高さを揃える。
             Button("全部点位", action: onRefit)
-                .buttonStyle(AnitabiCapsuleStyle(kind: .primary, size: .chip))
+                .buttonStyle(AnitabiCapsuleStyle(kind: .primary, size: .barChip))
                 .fixedSize(horizontal: true, vertical: false)
             CardCloseButton(action: onClose)
         }
@@ -153,10 +156,10 @@ struct WorkCardSheet: View {
     /// 一段式の実高だけを測るための不可視の複製（レイアウトには効かせない）。
     private var compactHeaderProbe: some View {
         compactHeader
+            .environment(\.isMarqueeEnabled, false)
             .fixedSize(horizontal: false, vertical: true)
             .compactContentHeight(.work)
             .hidden()
-            .environment(\.isMarqueeEnabled, false)
             .frame(height: 0, alignment: .top)
     }
 
@@ -280,13 +283,9 @@ struct WorkCardSheet: View {
         }
     }
 
-    /// 総点数 <100 なら初期状態で全展开、≥100 なら先頭组だけ展开。
+    /// 初期状態は常に全展开（折叠は「全部折叠」ボタンから明示的に行う）。
     private func resetCollapseState() {
-        guard showsGroupingControls else {
-            collapsedGroupIDs = []
-            return
-        }
-        collapsedGroupIDs = points.count < 100 ? [] : Set(groups.dropFirst().map(\.id))
+        collapsedGroupIDs = []
     }
 
     // MARK: 4. 外链（設計稿 2b：白い薄膜のカプセルを折り返して並べる）
