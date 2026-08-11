@@ -160,7 +160,7 @@ struct WelcomeView: View {
             Text("开始使用")
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.glassProminent)
+        .prominentActionButtonStyle()
         .controlSize(.large)
         .scenePadding(.horizontal)
         .padding(.vertical, 10)

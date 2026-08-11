@@ -35,12 +35,12 @@ struct MapControlStack: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            GlassEffectContainer {
+            GlassContainerCompat {
                 VStack(spacing: 0) {
                     locationButton
                     mapMenuButton
                 }
-                .glassEffect(.regular.interactive(), in: .capsule)
+                .capsuleGlass(interactive: true)
             }
             // 区切り線は `GlassEffectContainer` の**外**に重ねる。中に入れるとガラスの
             // 素材レイヤーに巻き込まれてぼけ、実質見えなくなる（実測：RGB 差 1）。

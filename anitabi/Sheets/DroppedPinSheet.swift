@@ -173,7 +173,7 @@ struct DroppedPinSheet: View {
 
     // MARK: - データ
 
-    /// iOS 26 の `MKReverseGeocodingRequest`（`CLGeocoder` は iOS 26 で非推奨）。
+    /// iOS 26 は `MKReverseGeocodingRequest`、それ未満は `CLGeocoder`（26 で非推奨になった方）。
     /// 失敗も空応答も等しく nil（呼び出し側は両方「已选位置」に丸める）。
     /// 電波が弱い巡礼中は応答が返らないことも普通にあるので、5 秒でタイムアウトさせて
     /// 「加载中」のまま固まらないようにする（実測でも Simulator 上で応答が返らないことがあった）。
@@ -182,9 +182,13 @@ struct DroppedPinSheet: View {
         return await withTaskGroup(of: String?.self) { group in
             group.addTask {
                 let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-                guard let request = MKReverseGeocodingRequest(location: location) else { return nil }
-                guard let items = try? await request.mapItems else { return nil }
-                return items.first?.name
+                if #available(iOS 26, *) {
+                    guard let request = MKReverseGeocodingRequest(location: location) else { return nil }
+                    guard let items = try? await request.mapItems else { return nil }
+                    return items.first?.name
+                } else {
+                    return await Self.legacyReverseGeocode(location)
+                }
             }
             group.addTask {
                 try? await Task.sleep(for: .seconds(5))
@@ -194,6 +198,15 @@ struct DroppedPinSheet: View {
             group.cancelAll()
             return result
         }
+    }
+
+    /// iOS 26 未満の反查。関数自体を「26 で非推奨」と印しておくことで、中で
+    /// `CLGeocoder` を呼んでも非推奨警告が出ない（同じ非推奨文脈からの呼び出しは黙る）。
+    /// 26 が最低適配になったらこの関数ごと消せる。
+    @available(iOS, deprecated: 26.0, message: "iOS 26 以降は MKReverseGeocodingRequest を使う")
+    private static func legacyReverseGeocode(_ location: CLLocation) async -> String? {
+        guard let placemarks = try? await CLGeocoder().reverseGeocodeLocation(location) else { return nil }
+        return placemarks.first?.name
     }
 
     /// `AnitabiStore.recomputeNearby` と同じ等距長方形近似——5 万点の線形走査なので

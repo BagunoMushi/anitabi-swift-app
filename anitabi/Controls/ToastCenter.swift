@@ -69,7 +69,7 @@ struct ToastOverlayView: View {
                 .font(.subheadline)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
-                .glassEffect(.regular, in: .capsule)
+                .capsuleGlass()
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
