@@ -115,10 +115,9 @@ struct RootView: View {
 
     // MARK: 作品モードの枠追従
 
-    /// 档が動いたら作品の枠を置き直すか。作品カードを開いた／「全部点位」を押した時点で true、
-    /// **ユーザーが自分で地図を動かしたら false** —— 自分で決めた画角を档の上下で奪わない
-    /// （もう一度合わせたければ「全部点位」を押せる）。
-    @State private var workFitFollowsSheet = false
+    /// 明示的に全景を要求した作品だけ、档の変化にも枠を追従させる。通常の作品選択は
+    /// 現在の画角を保つ。対象 ID を持つことで、別作品への切り替えに古い追従を持ち越さない。
+    @State private var workFitID: Int?
     @State private var workFitTask: Task<Void, Never>?
     /// 選んだ地標の縦位置を実測で置き直す補正の待ち（`schedulePlacement`）。
     @State private var revealTask: Task<Void, Never>?
@@ -130,8 +129,6 @@ struct RootView: View {
     /// `store.bootstrap()` 完走前に着いた深リンク。完走した瞬間に 1 回だけ吐き出す。
     @State private var pendingDeepLink: MapDeepLink?
     @State private var isDataReady = false
-    /// 深リンクが c/z を持っているとき、`didOpenWork` の自動フィットを 1 回だけ黙らせる。
-    @State private var suppressNextWorkFit = false
     /// 欢迎页。初期値は UserDefaults を 1 回だけ読む —— `@AppStorage` にすると門と表示状態が
     /// 同じキーに縛られ、「見終わった後にもう一度見る」を表現できなくなる。
     @State private var isWelcomePresented = !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
@@ -180,16 +177,6 @@ struct RootView: View {
             // 落ち着いた後の姿がここに 1 回だけ届く（同一フレーム内の複数変更はまとめて 1 回）。
             .onChange(of: routerStack) { _, _ in syncStack() }
             .onChange(of: router.workCard) { _, new in didOpenWork(new) }
-            // 地標カードを閉じて作品カードへ**戻った**ときだけ全点が収まる画へ寄せ直す —— 寄った
-            // ままだと「一覧に戻ったのに地図は別の話をしている」状態になる。これがあるので
-            // 中/大档には「查看全部点位」の釦を置かない（`WorkCardSheet`）。
-            .onChange(of: router.pointCard) { old, new in
-                guard old != nil, new == nil, router.workCard != nil else { return }
-                // 帯が確定してから測りたいので、即時ではなく追従（防抖）に乗せる。
-                workFitFollowsSheet = true
-                lastWorkFitCardTop = nil
-                scheduleWorkRefit()
-            }
             // 档が吸着したら枠を置き直す（畳めば中央へゆっくり収まる）。`PresentationDetent` は
             // 吸着後にしか変わらないので、拖动の途中に镜头が付いてくることはない。
             .onChange(of: detent) { _, _ in scheduleWorkRefit() }
@@ -662,6 +649,8 @@ struct RootView: View {
     private func handleLocationTap() {
         switch locationProvider.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
+            stopWorkFitFollowing()
+            stopPlacing()
             command = MapCameraCommand(kind: .userLocation(span: 0.01))
             withAnimation(.anitabiSpring) { isLocationActive = true }
         case .denied, .restricted:
@@ -677,6 +666,7 @@ struct RootView: View {
     private func rollRandomWork() {
         guard !isRandomCoolingDown, let work = store.randomWork() else { return }
         router.focusWork(id: work.id)
+        refitWork(work.id)
         router.toast.show(String(localized: "已跳转到《\(work.displayName)》"), symbol: "dice.fill")
         isRandomCoolingDown = true
         Task { @MainActor in
@@ -687,45 +677,36 @@ struct RootView: View {
         }
     }
 
-    /// 作品カードが開いた（＝作品モードに入った）。全点を収める画へ寄せる。
-    /// 档は `syncStack()` が面倒を見るのでここでは触らない。深リンクが c/z を持っているときは
-    /// このフィットだけ 1 回黙るが、訪問記録はそれでも取る。
+    /// 作品選択は表示内容だけを変え、近所を見ていた画角は保つ。
+    /// 全景への移動は「全部点位」・随机作品・カメラ指定のない深リンクから明示的に要求する。
     private func didOpenWork(_ selection: WorkSelection?) {
-        guard let selection else {
-            // 作品モードを出たら追従も畳む（次に開いた作品が古い指令を拾わないように）。
-            stopWorkFitFollowing()
-            return
-        }
+        if workFitID != selection?.id { stopWorkFitFollowing() }
+        guard let selection else { return }
         store.rememberVisit(bangumiID: selection.id)
-        if suppressNextWorkFit {
-            suppressNextWorkFit = false
-            // 深リンクが c/z を指定している＝画角は呼び出し側が決めている。档の上下で奪わない。
-            stopWorkFitFollowing()
-            return
-        }
-        refitWork(selection.id)
     }
 
     private func stopWorkFitFollowing() {
         workFitTask?.cancel()
         workFitTask = nil
-        workFitFollowsSheet = false
+        workFitID = nil
         lastWorkFitCardTop = nil
     }
 
     /// 作品の枠が丸ごと収まる画へ寄せ直す。収める相手は**圧暗レイヤーが実際に描いている多角形**
     /// —— 点群を直接渡すと `fitRect` が離群点を切り捨てて枠と镜头が別の点集合を見ることになる。
     /// カードに譲る帯は指定しない（`MapCanvas` が署名・浮控と同じ実測値を使う）。
-    private func refitWork(_ id: Int) {
+    private func refitWork(_ id: Int, animated: Bool = true) {
+        stopWorkFitFollowing()
+        stopPlacing()
         let coordinates = (store.pointsByBangumi[id] ?? []).map(\.coordinate)
         guard !coordinates.isEmpty else { return }
-        workFitFollowsSheet = true
+        workFitID = id
         lastWorkFitCardTop = cardFrame?.minY
         if let hull = WorkRegionOverlay.hull(for: coordinates) {
-            command = .fitWork(hull, trimsOutliers: false)
+            command = .fitWork(hull, trimsOutliers: false, animated: animated)
         } else {
             // 判定範囲外（海外点を含む）の作品は圧暗レイヤーも出ないので、点群フィットに落ちる。
-            command = .fitWork(coordinates)
+            command = .fitWork(coordinates, animated: animated)
         }
     }
 
@@ -733,13 +714,13 @@ struct RootView: View {
     /// （`PresentationDetent` は吸着で即変わるが、可視カードはそこからバネで動く）。帯がほとんど
     /// 変わっていなければ動かさない —— でないと入場のフライトが着地寸前に上書きされて二度動く。
     private func scheduleWorkRefit() {
-        guard workFitFollowsSheet, let work = router.workCard else { return }
+        guard let work = router.workCard, workFitID == work.id else { return }
         workFitTask?.cancel()
         workFitTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(360))
             guard
                 !Task.isCancelled,
-                workFitFollowsSheet,
+                workFitID == work.id,
                 router.workCard?.id == work.id,
                 top.layer == .work,
                 // 三段式はカードが地図をほぼ占めるので、枠を詰め込む意味が無い。
@@ -760,6 +741,7 @@ struct RootView: View {
     /// **`windowSize` は使わない**：あれは検索でキーボードが出ている間その高さぶん縮むので、
     /// 検索から選んだ点だけ上寄せが 4 割ほど足りず、カードの縁に貼り付いていた。
     private func selectPointFromList(_ point: ScenePoint) {
+        stopWorkFitFollowing()
         router.selectPoint(point)
         command = .flyTo(
             point,
@@ -775,6 +757,7 @@ struct RootView: View {
     /// 左右も奪わない。ただしカードは点より高く立ち上がることがある（地標カード 0.531 は作品カード
     /// 0.417 より高い）ので、点が潜ってしまったぶんだけ後から流す。
     private func selectPointFromMap(_ point: ScenePoint) {
+        stopWorkFitFollowing()
         router.selectPoint(point)
         schedulePlacement(point, .revealed, after: .milliseconds(360))
     }
@@ -807,6 +790,8 @@ struct RootView: View {
     /// `collapsesSheet` はブラウズ経路だけ true —— 検索から都市を選んだときは検索態のまま
     /// 「この都市の作品」を読ませるので、卡片は持ち上げたまま裏で镜头だけ飛ばす。
     private func focusCity(_ city: CityTile, collapsesSheet: Bool = true) {
+        stopWorkFitFollowing()
+        stopPlacing()
         let latDelta = min(max(city.radius * 2.4 / 111_320, 0.02), 4)
         let lngDelta = latDelta / max(cos(city.center.latitude * .pi / 180), 0.2)
         command = .region(
@@ -863,6 +848,8 @@ struct RootView: View {
     /// 呈现側はここでは触らない —— router を書き換えれば `syncStack()` が組み立てる。
     private func apply(deepLink link: MapDeepLink, animated: Bool) {
         guard !link.isEmpty else { return }
+        stopWorkFitFollowing()
+        stopPlacing()
 
         if !link.bids.isEmpty {
             router.selectedWorkIDs = Set(link.bids)
@@ -872,8 +859,8 @@ struct RootView: View {
 
         if let bangumiID = link.bangumiID {
             if store.bangumi(id: bangumiID) != nil {
-                if hasCameraTarget { suppressNextWorkFit = true }
                 router.focusWork(id: bangumiID)
+                if !hasCameraTarget { refitWork(bangumiID, animated: animated) }
             } else {
                 router.toast.show(String(localized: "链接的内容不存在或已删除"), symbol: "exclamationmark.triangle")
             }
@@ -881,6 +868,8 @@ struct RootView: View {
 
         if let pointID = link.pointID {
             if let point = store.points.first(where: { $0.id == pointID }) {
+                // 初回の着地指令は保ち、地標から戻った後まで作品の追従を持ち越さない。
+                stopWorkFitFollowing()
                 router.selectPoint(point)
             } else {
                 router.toast.show(String(localized: "链接的内容不存在或已删除"), symbol: "exclamationmark.triangle")
