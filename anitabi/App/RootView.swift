@@ -115,8 +115,8 @@ struct RootView: View {
 
     // MARK: 作品モードの枠追従
 
-    /// 明示的に全景を要求した作品だけ、档の変化にも枠を追従させる。通常の作品選択は
-    /// 現在の画角を保つ。対象 ID を持つことで、別作品への切り替えに古い追従を持ち越さない。
+    /// 全景へ移動した作品だけ、档の変化にも枠を追従させる。近所を見ているときの
+    /// 作品選択は画角を保つ。対象 ID を持つことで、別作品へ古い追従を持ち越さない。
     @State private var workFitID: Int?
     @State private var workFitTask: Task<Void, Never>?
     /// 選んだ地標の縦位置を実測で置き直す補正の待ち（`schedulePlacement`）。
@@ -129,6 +129,8 @@ struct RootView: View {
     /// `store.bootstrap()` 完走前に着いた深リンク。完走した瞬間に 1 回だけ吐き出す。
     @State private var pendingDeepLink: MapDeepLink?
     @State private var isDataReady = false
+    /// 深リンクのカメラ処理済み作品。次の作品変更通知だけ通常選択の自動フィットを抑える。
+    @State private var explicitWorkCameraID: Int?
     /// 欢迎页。初期値は UserDefaults を 1 回だけ読む —— `@AppStorage` にすると門と表示状態が
     /// 同じキーに縛られ、「見終わった後にもう一度見る」を表現できなくなる。
     @State private var isWelcomePresented = !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
@@ -677,12 +679,29 @@ struct RootView: View {
         }
     }
 
-    /// 作品選択は表示内容だけを変え、近所を見ていた画角は保つ。
-    /// 全景への移動は「全部点位」・随机作品・カメラ指定のない深リンクから明示的に要求する。
+    /// 遠景では作品の広がりへ寄せ、視口作品 chips が使える近接レベルでは画角を保つ。
+    /// 明示的な全景要求・深リンクのカメラは、通常選択の判定で上書きしない。
     private func didOpenWork(_ selection: WorkSelection?) {
+        let hasExplicitCamera = selection != nil && explicitWorkCameraID == selection?.id
+        explicitWorkCameraID = nil
         if workFitID != selection?.id { stopWorkFitFollowing() }
         guard let selection else { return }
         store.rememberVisit(bangumiID: selection.id)
+        guard !hasExplicitCamera, workFitID != selection.id else { return }
+        guard let zoom = currentWorkSelectionZoom, zoom >= MapCameraPlanner.preserveWorkViewportMinZoom else {
+            refitWork(selection.id)
+            return
+        }
+    }
+
+    /// onCameraIdle は 120ms 防抖されるので、縮放直後の選択では生の地図を優先する。
+    /// zoom は経度 span と幅だけから計算され、カード用の下余白には影響されない。
+    /// 開局で地図もコールバックもまだ無い場合は nil とし、遠景と同じく作品へフィットする。
+    private var currentWorkSelectionZoom: Double? {
+        if let mapView, mapView.bounds.width > 0, mapView.region.span.longitudeDelta > 0 {
+            return MapCameraPlanner.zoom(for: mapView.region, width: mapView.bounds.width)
+        }
+        return router.cameraState?.zoom
     }
 
     private func stopWorkFitFollowing() {
@@ -859,6 +878,8 @@ struct RootView: View {
 
         if let bangumiID = link.bangumiID {
             if store.bangumi(id: bangumiID) != nil {
+                // 同じ作品では変更通知が来ないので、次の通常選択へ抑制を残さない。
+                if router.workCard?.id != bangumiID { explicitWorkCameraID = bangumiID }
                 router.focusWork(id: bangumiID)
                 if !hasCameraTarget { refitWork(bangumiID, animated: animated) }
             } else {
